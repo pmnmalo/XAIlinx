@@ -42,6 +42,11 @@ the "What's new" text of its GitHub release.
   the file is byte-identical to ISE's bitgen (CRC on and off). Designs placed and routed by Silinx
   still use a few routing switches not measured yet. The package's pads come from the device
   description built from the user's own ISE, never from the repository.
+- A test that the repository holds no data that must not be published
+  (`scripts/check-private-data.mjs`, run by `npm test` on every tracked file; `--history` also checks
+  the whole git history): e-mail addresses, home folders with a user name, logins, computer names
+  and network addresses, passwords, keys and access tokens, and Xilinx files (ISE's outputs,
+  licences, device reports).
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - How the open toolchain for the Spartan-3E is being developed: `docs/OPEN-TOOLCHAIN.md`, and the
   first experiments in `research/s3e-bitstream`.

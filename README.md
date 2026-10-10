@@ -235,6 +235,7 @@ node bin/silinx-ise.js sim   <projectDir> --time 2000 --vcd out.vcd   # simulate
 node bin/silinx-ise.js ucf   <projectDir> --board basys2              # constraints from a board's pin table
 node bin/silinx-ise.js toolchain [--docker xilinx/ise:14.7]          # show / set the ISE toolchain
 npm test                                                         # test suite
+node scripts/check-private-data.mjs [--history]                 # no personal data, secrets or Xilinx files (also run by npm test)
 npm run test:ui                                                  # UI tests (headless Chrome), incl. memory leaks
 npx playwright install webkit && npm run test:webkit             # memory in WebKit (Safari's engine)
 ```
