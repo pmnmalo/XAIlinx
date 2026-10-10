@@ -59,6 +59,11 @@ the "What's new" text of its GitHub release.
   of the unmeasured XB / YB pins, so blinky and lab11 go from VHDL / Verilog to a `.bit` file with no
   Xilinx tool at all (`research/s3e-route/open-flow.mjs`). Checked against ISE: 0 DRC errors and a
   bitstream byte-identical to ISE's bitgen for the same routed design (8 placements, CRC on and off).
+- Tests with Xilinx ISE on another machine (for the developers, e.g. an Intel Mac where ISE runs
+  natively): `SILINX_ISE_HOST=user@host` runs the real ISE flow tests there (79 s instead of ~15 min
+  emulated), and `npm run check:open-flow` checks the fully open flow against ISE (design rule check,
+  byte-identical bitstreams). The open flow now synthesizes with the WebAssembly Yosys (nothing to
+  install).
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - How the open toolchain for the Spartan-3E is being developed: `docs/OPEN-TOOLCHAIN.md`, and the
   first experiments in `research/s3e-bitstream`.

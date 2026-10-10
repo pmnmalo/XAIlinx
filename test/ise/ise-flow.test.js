@@ -2,6 +2,8 @@
 // and takes ~15 minutes under x86 emulation).
 //
 //   SILINX_ISE_TESTS=1 node --test test/ise/*.test.js   (image: SILINX_ISE_IMAGE, default xilinx/ise:14.7)
+//   SILINX_ISE_HOST=user@host …                        the image on another machine, over ssh (the SSH
+//                                                       mode with a Docker image on the remote host)
 //
 // A project is created from the blinky template (Basys2, xc3s250e-4-cp132), the toolchain is set to
 // docker mode, POST /projects/:p/implement runs the whole flow (synthesis, translate, map, place &
@@ -15,8 +17,16 @@ import { spawnSync } from 'node:child_process';
 
 const IMAGE = process.env.SILINX_ISE_IMAGE || 'xilinx/ise:14.7';
 const enabled = process.env.SILINX_ISE_TESTS === '1';
-const haveImage = enabled && spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', IMAGE], { encoding: 'utf8' }).status === 0;
-const skip = !enabled ? 'set SILINX_ISE_TESTS=1 to run the ISE flow tests' : !haveImage ? `docker image ${IMAGE} not available` : false;
+// the host only from the environment (never written in a file)
+const HOST = /^(?:([\w.-]+)@)?([\w.:-]+)$/.exec(process.env.SILINX_ISE_HOST || '');
+const haveImage = enabled && (HOST
+  ? spawnSync('ssh', ['-o', 'BatchMode=yes', '--', process.env.SILINX_ISE_HOST, `export PATH="$PATH:/usr/local/bin"; docker image inspect --format '{{.Id}}' ${IMAGE}`], { encoding: 'utf8' }).status === 0
+  : spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', IMAGE], { encoding: 'utf8' }).status === 0);
+const skip = !enabled ? 'set SILINX_ISE_TESTS=1 to run the ISE flow tests'
+  : !haveImage ? `docker image ${IMAGE} not available${HOST ? ' on the remote host (ssh)' : ''}` : false;
+const TOOLCHAIN = HOST
+  ? { mode: 'ssh', ssh: { host: HOST[2], user: HOST[1] || '', remoteDir: 'silinx-ise-tests', image: IMAGE, settings: '/opt/Xilinx/14.7/ISE_DS/settings64.sh' } }
+  : { mode: 'docker', docker: { image: IMAGE, platform: 'linux/amd64', settings: '/opt/Xilinx/14.7/ISE_DS/settings64.sh' } };
 
 let tmp, srv, base, jobs;
 before(async () => {
@@ -45,7 +55,7 @@ const call = async (method, url, body) => {
 };
 
 test('ISE flow end to end through the API: blinky on the Basys2 (reports, pins, power, bitstreams)', { skip, timeout: 60 * 60 * 1000 }, async () => {
-  let r = await call('PUT', '/toolchain', { mode: 'docker', docker: { image: IMAGE, platform: 'linux/amd64', settings: '/opt/Xilinx/14.7/ISE_DS/settings64.sh' } });
+  let r = await call('PUT', '/toolchain', TOOLCHAIN);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.ise.available, true, r.body.ise.reason);
 

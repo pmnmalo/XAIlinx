@@ -1,6 +1,6 @@
-// The fully open flow for a Silinx project, no Xilinx tool in it: Silinx's front end + Yosys
-// (research/s3e-place/synth.mjs) -> pack -> place -> route on the PIPs whose bits are known ->
-// Silinx's bitgen. Needs `yosys` and the device cache (~/.silinx/devices, built from the user's own
+// The fully open flow for a Silinx project, no Xilinx tool in it: Silinx's front end + Yosys compiled
+// to WebAssembly (core/synth-open.js) -> pack -> place -> route on the PIPs whose bits are known ->
+// Silinx's bitgen. Needs the device cache (~/.silinx/devices, built from the user's own
 // device report: research/s3e-route/build-device.mjs).
 //   node research/s3e-route/open-flow.mjs <project folder> <out folder> [--json netlist.json] [--seed N] [--effort E] [--timing T] [--no-crc]
 // (seed, effort, timing: the placer's options, core/fpga/place.js). Writes into the out folder: <top>.json (Yosys), placed.xdl, routed.xdl, <top>.bit. Fails (exit 1)
@@ -8,8 +8,10 @@
 // database does not know: the .bit is written only when it is complete.
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { compile, elaborate } from '../../core/compile.js';
+import { primitiveSources } from '../../core/unisim.js';
+import { synthesizeOpen } from '../../core/synth-open.js';
+import { yosysNode } from '../../core/synth-open-node.js';
 import { parseXdl, writeXdl } from '../../core/xdl.js';
 import { readYosysJson } from '../../core/fpga/netlist.js';
 import { pack } from '../../core/fpga/pack.js';
@@ -33,14 +35,20 @@ fs.mkdirSync(outDir, { recursive: true });
 const step = (what, t) => console.log(`${what}: ${Date.now() - t} ms`);
 const fail = (msg, list = []) => { console.error(`open-flow: ${msg}`); for (const x of list) console.error(`  ${x}`); process.exit(1); };
 
-// synthesis: Silinx's front end + Yosys
+// synthesis: Silinx's front end + Yosys (WebAssembly), as the Synthesize - Yosys (open) process
 let t = Date.now();
 let netFile = json;
 if (!netFile) {
-  const synth = path.join(path.dirname(fileURLToPath(import.meta.url)), '../s3e-place/synth.mjs');
-  execFileSync(process.execPath, [synth, projDir, top, outDir], { stdio: 'inherit' });
+  const srcs = proj.files.filter(f => (f.role || 'design') === 'design' && (f.lang === 'vhdl' || f.lang === 'verilog'))
+    .map(f => ({ path: f.path, lang: f.lang, text: fs.readFileSync(path.join(projDir, f.path), 'utf8') }));
+  const lib = compile([...primitiveSources(srcs), ...srcs]);
+  const design = elaborate(lib, top);
+  const errs = [...lib.errors, ...design.diags].filter(d => d.severity === 'error');
+  if (errs.length) fail('the design has errors', errs.map(e => `${e.file}:${e.line} ${e.message}`));
+  const r = await synthesizeOpen(design, { family: proj.device.family || 'spartan3e', run: yosysNode, onLine: l => { if (/^(Warning|ERROR)/.test(l)) console.log(`  ${l}`); } });
+  for (const [name, text] of Object.entries(r.files)) fs.writeFileSync(path.join(outDir, name), text);
   netFile = path.join(outDir, `${top}.json`);
-  step('synthesis', t);
+  step(`synthesis (${r.util.cells} cells)`, t);
 }
 // pack: a carry out read by logic leaves through an XOR stage, not XB / YB (not in the database)
 t = Date.now();
