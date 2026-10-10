@@ -215,6 +215,9 @@ In short, from the [latest release](https://github.com/pmnmalo/Silinx-ISE/releas
   Silinx; projects are folders in `Silinx-projects` in your user folder.
 - **Synthesis needs Xilinx ISE 14.7** (free WebPACK): build your own Docker image with
   **`silinx-ise-docker-kit-<version>.zip`** (see [below](#synthesis-and-bitstreams-xilinx-ise-147)).
+  Without ISE, *Synthesize - Yosys (open)* synthesizes the design in the browser with Yosys compiled
+  to WebAssembly (a netlist and its utilization; the open place and route and bitstream for the
+  Spartan-3E are still being developed: [docs/OPEN-TOOLCHAIN.md](docs/OPEN-TOOLCHAIN.md)).
 
 ## For developers
 

@@ -279,6 +279,18 @@ test('toolchain: iseStatus for every mode, which(), version probe fallback, conf
 // projects: write failures
 // ------------------------------------------------------------------------------------------------
 
+test('projects: HDL files written are registered as sources, but not the generated ones in build/', async () => {
+  const P = await import('../server/projects.js');
+  await P.createProject({ name: 'Reg' });
+  await P.writeFile('Reg', 'src/new.v', 'module n; endmodule\n');
+  await P.writeFile('Reg', 'sim/tb_new.vhd', '-- tb\n');
+  await P.writeFile('Reg', 'build/open/top_syn.v', 'module top; endmodule\n');   // the open synthesis' netlist
+  await P.writeFile('Reg', 'build/top_yosys.v', 'module top; endmodule\n');
+  const pj = await P.readProject('Reg');
+  assert.deepEqual(pj.files.map(f => [f.path, f.role]), [['src/new.v', 'design'], ['sim/tb_new.vhd', 'sim']]);
+  assert.equal(await fs.readFile(path.join(P.projectDir('Reg'), 'build', 'open', 'top_syn.v'), 'utf8'), 'module top; endmodule\n');
+});
+
 test('projects: a failed silinx.json write leaves no temp file and the old file intact', async () => {
   const P = await import('../server/projects.js');
   await P.createProject({ name: 'Wr' });

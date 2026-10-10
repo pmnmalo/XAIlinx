@@ -48,7 +48,7 @@ const PT = {
   // processes
   'Design Summary/Reports': 'Resumo do Projeto/Relatórios', 'Design Utilities': 'Utilitários de Projeto',
   'View HDL Instantiation Template': 'Ver Modelo de Instanciação HDL', 'User Constraints': 'Restrições do Utilizador',
-  'Edit Constraints (Text)': 'Editar Restrições (Texto)', 'Synthesize - XST': 'Sintetizar - XST', 'Implement Design': 'Implementar Projeto',
+  'Edit Constraints (Text)': 'Editar Restrições (Texto)', 'Synthesize - XST': 'Sintetizar - XST', 'Synthesize - Yosys (open)': 'Sintetizar - Yosys (aberto)', 'Implement Design': 'Implementar Projeto',
   'Translate': 'Traduzir', 'Map': 'Mapear', 'Place & Route': 'Posicionar e Encaminhar', 'Generate Programming File': 'Gerar Ficheiro de Programação',
   'Configure Target Device': 'Configurar Dispositivo', 'Manage Configuration Project (iMPACT)': 'Gerir Projeto de Configuração (iMPACT)',
   'ISim Simulator': 'Simulador ISim', 'Behavioral Check Syntax': 'Verificar Sintaxe (Comportamental)',

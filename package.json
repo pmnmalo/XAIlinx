@@ -17,6 +17,7 @@
   },
   "license": "AGPL-3.0-only",
   "dependencies": {
+    "@yowasp/yosys": "0.68.1207",
     "codemirror": "^5.65.21",
     "elkjs": "^0.9.3",
     "express": "^4.22.3"

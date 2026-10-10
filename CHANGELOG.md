@@ -47,6 +47,13 @@ the "What's new" text of its GitHub release.
   the whole git history): e-mail addresses, home folders with a user name, logins, computer names
   and network addresses, passwords, keys and access tokens, and Xilinx files (ISE's outputs,
   licences, device reports).
+- **Synthesize - Yosys (open)**: a new process that synthesizes the design in the browser, without
+  Xilinx ISE: Silinx's front end writes the design as one flat module and Yosys, compiled to
+  WebAssembly (YoWASP), maps it onto the cells of the device family in a Web Worker. The console
+  shows Yosys's messages and the utilization (LUTs, flip-flops, multiplexers, carry logic, clock
+  buffers, I/O…); the netlist is saved in `build/open/` (JSON and Verilog). Generated HDL files in
+  `build/` are no longer added to the project's sources. (The app's download grows by the Yosys
+  WebAssembly module, about 75 MB unpacked.)
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - How the open toolchain for the Spartan-3E is being developed: `docs/OPEN-TOOLCHAIN.md`, and the
   first experiments in `research/s3e-bitstream`.
