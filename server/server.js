@@ -88,6 +88,8 @@ export async function startServer({ port = 8642, host = '127.0.0.1' } = {}) {
 
 /** Open a URL in the default browser (best effort). */
 export async function openBrowser(url) {
+  // SILINX_NO_BROWSER=1: only print the URL (tests run the launchers this way; also for a server)
+  if (process.env.SILINX_NO_BROWSER) return;
   const { spawn } = await import('node:child_process');
   const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', url]]
     : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];

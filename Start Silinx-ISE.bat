@@ -24,6 +24,7 @@ if not exist "node_modules\express" (
   call npm install --omit=dev
   if errorlevel 1 ( echo Installation failed. & pause & exit /b 1 )
 )
-echo Starting Silinx... your browser opens at http://127.0.0.1:8642
+if "%PORT%"=="" set PORT=8642
+echo Starting Silinx... your browser opens at http://127.0.0.1:%PORT%
 node bin\silinx-ise.js serve --open
 pause

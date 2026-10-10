@@ -3,6 +3,10 @@ on:
   push:
     branches: [main]
   pull_request:
+# a newer push to the same branch / pull request cancels the run still going
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -29,3 +33,57 @@ jobs:
         run: npx playwright install --with-deps webkit && npm run test:webkit
         timeout-minutes: 15
       - run: node scripts/build-standalone.mjs
+
+  # the release zip as users get it: packaged as the Release workflow does, unzipped, started with its
+  # launcher, and the open synthesis run in Chrome from it without the Internet
+  release-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:release
+        timeout-minutes: 10
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+
+  # the main UI flows in Firefox and in WebKit (Safari's engine)
+  browsers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps firefox webkit
+      - run: npm run test:browsers
+        timeout-minutes: 20
+
+  # macOS and Windows: the unit tests, the launchers and a small UI smoke test in the installed Chrome
+  # (and on macOS the release zip, with its .command launcher)
+  os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: UI smoke test (headless Chrome)
+        run: node --test --test-concurrency=1 test/ui/app.test.js test/ui/focus.test.js test/ui/synth-open.test.js
+        timeout-minutes: 15
+      - name: Release zip
+        if: runner.os == 'macOS'
+        run: npm run test:release
+        timeout-minutes: 10

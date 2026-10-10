@@ -21,20 +21,16 @@ jobs:
       - run: npm test
       - name: Build the single-file edition
         run: node scripts/build-standalone.mjs
+      # the same script as the release test (npm run test:release, in CI): the app zip (tracked files +
+      # production dependencies), the Docker builder kit for ISE 14.7 (no Xilinx software or licence
+      # inside) and the single-file edition
       - name: Package
-        run: |
-          set -e
-          V="${GITHUB_REF_NAME#v}"
-          mkdir -p out
-          cp dist/Silinx-ISE.html out/Silinx-ISE.html
-          # full app: tracked sources + production dependencies
-          rm -rf pkg && mkdir -p pkg/silinx-ise
-          git archive HEAD | tar -x -C pkg/silinx-ise
-          (cd pkg/silinx-ise && npm ci --omit=dev --ignore-scripts && rm -rf .github)
-          (cd pkg && zip -qr "../out/silinx-ise-$V.zip" silinx-ise)
-          # Docker builder kit for ISE 14.7 (no Xilinx software or licence inside)
-          (cd docker && zip -qr "../out/silinx-ise-docker-kit-$V.zip" ise)
-          ls -la out
+        run: node scripts/package-release.mjs "${GITHUB_REF_NAME#v}" --out out && ls -la out
+      - name: Check the app zip (unzipped, started, open synthesis in Chrome, offline)
+        run: npm run test:release
+        timeout-minutes: 10
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
