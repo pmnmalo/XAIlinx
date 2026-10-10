@@ -72,6 +72,10 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # the macOS runner's Chrome with its GPU slows down until it stops answering: software rendering
+      SILINX_UI_CHROME_ARGS: ${{ matrix.os == 'macos-latest' && '--disable-gpu' || '' }}
+      SILINX_UI_CDP_TIMEOUT: 60000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -82,7 +86,7 @@ jobs:
       - run: npm test
       - name: UI smoke test (headless Chrome)
         run: node --test --test-concurrency=1 test/ui/modern.test.js test/ui/focus.test.js test/ui/synth-open.test.js
-        timeout-minutes: 15
+        timeout-minutes: 10
       - name: Release zip
         if: runner.os == 'macOS'
         run: npm run test:release
