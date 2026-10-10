@@ -235,6 +235,8 @@ node bin/silinx-ise.js sim   <projectDir> --time 2000 --vcd out.vcd   # simulate
 node bin/silinx-ise.js ucf   <projectDir> --board basys2              # constraints from a board's pin table
 node bin/silinx-ise.js toolchain [--docker xilinx/ise:14.7]          # show / set the ISE toolchain
 npm test                                                         # test suite
+npm run test:ui                                                  # UI tests (headless Chrome), incl. memory leaks
+npx playwright install webkit && npm run test:webkit             # memory in WebKit (Safari's engine)
 ```
 
 ### Standalone edition (a single HTML file)
@@ -273,7 +275,7 @@ Other execution modes (*Tools ▸ Toolchain Settings*):
 |---|---|
 | `local` | ISE installed on this machine (Linux/Windows); `settings64.sh` is detected |
 | `docker` | an x86-64 image with ISE 14.7 at `/opt/Xilinx/14.7/ISE_DS` (Silinx never pulls images) |
-| `ssh` | a remote Linux machine with ISE (key-based authentication) |
+| `ssh` | another machine, over SSH with key-based authentication: with ISE installed (Linux), or with the ISE Docker image (*Docker image on the remote host*), e.g. an Intel Mac, where ISE runs natively instead of emulated as on Apple Silicon |
 
 Only the project's `build/` folder is mounted in the container (at `/work`); no X11 or `$HOME`
 mount is needed for command-line builds. Without ISE, the implementation processes still write

@@ -14,6 +14,28 @@ the "What's new" text of its GitHub release.
   VHDL / Verilog design as one flat synthesizable SystemVerilog module for Yosys, so that synthesis
   needs neither GHDL nor ISE (and can run in the browser). lab11 and the blinky example go through
   Yosys to a Spartan-3E netlist that behaves as the original in simulation.
+  It also handles initial blocks (initial values of registers and memories) and Xilinx primitives
+  instantiated by name (block RAMs, clock buffers, DCMs, shift registers): every test design
+  synthesizes to a netlist that behaves as the original.
+- **Packer and placer** for the Spartan-3E (`core/fpga/`, first version): Yosys's netlist packed
+  into slices (LUTs, flip-flops, latches, carry chains, F5-F8 multiplexers), I/O pads and global
+  clock buffers, and placed by simulated annealing; checked with ISE (routing of our placement and
+  simulation of the result) on lab11 and blinky.
+- **Router** for the Spartan-3E (`core/fpga/route.js`, first version): PathFinder over the device's
+  routing graph (built once per computer from ISE's device report, never shipped). lab11 and blinky,
+  synthesized, packed, placed and routed by Silinx, with ISE only writing the bitstream, pass ISE's
+  design rule check and work on a Basys2.
+- *Toolchain Settings*: the SSH mode (now *Remote host with Xilinx ISE via SSH*) can run the ISE flow in a Docker
+  image on the remote host (*Docker image on the remote host*), so another machine with the
+  Silinx ISE image can build, e.g. an Intel Mac, where ISE runs natively instead of emulated as on
+  Apple Silicon (lab11: about 70 s instead of 10 minutes).
+- FPGA view: selecting a site or a net no longer rebuilds the list of nets (a click takes half the
+  time, with less memory churn in Safari).
+- Memory tests (`test/ui/memory.test.js`): opening and closing the FPGA view, the editors, ISim and
+  the board emulator, selecting in the FPGA view and switching projects many times must leave
+  nothing behind (JS heap, DOM nodes and event listeners after garbage collection), and the page
+  must stay within a memory budget. The same scenarios also run in WebKit, Safari's engine
+  (`npm run test:webkit`, with Playwright), within a memory budget.
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - How the open toolchain for the Spartan-3E is being developed: `docs/OPEN-TOOLCHAIN.md`, and the
   first experiments in `research/s3e-bitstream`.

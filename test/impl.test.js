@@ -212,6 +212,23 @@ test('implement job without ISE fails with a helpful message but generates scrip
   assert.equal(jobs.getJob(job2.id).status, 'ok');
 });
 
+test('ssh mode with a docker image on the remote host: command, validation, status', async () => {
+  const tc = await import('../server/toolchain.js');
+  assert.equal(tc.DEFAULT_CONFIG.ssh.image, '');
+  const ssh = { settings: '/opt/Xilinx/14.7/ISE_DS/settings64.sh', image: 'xilinx/ise:14.7' };
+  assert.equal(ise.remoteFlowCommand({ ssh }, 'silinx-build/p', ['synth', 'map']),
+    `export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin"; cd silinx-build/p && docker run --rm -v "$PWD":/work -w /work -e ISE_SETTINGS=/opt/Xilinx/14.7/ISE_DS/settings64.sh xilinx/ise:14.7 bash run.sh synth map`);
+  assert.equal(ise.remoteFlowCommand({ ssh: { ...ssh, settings: '' } }, 'b/p', ['synth']),
+    `export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin"; cd b/p && docker run --rm -v "$PWD":/work -w /work xilinx/ise:14.7 bash run.sh synth`);
+  // no image: run.sh with the ISE installed on the host, as before
+  assert.equal(ise.remoteFlowCommand({ ssh: { ...ssh, image: '' } }, 'b/p', ['synth']), 'cd b/p && ISE_SETTINGS=/opt/Xilinx/14.7/ISE_DS/settings64.sh bash run.sh synth');
+  assert.equal(ise.remoteFlowCommand({ ssh: { settings: '', image: '' } }, 'b/p', ['synth']), 'cd b/p && bash run.sh synth');
+  await assert.rejects(tc.saveConfig({ mode: 'ssh', ssh: { host: 'h', image: 'x y;rm' } }), /ssh.image contains invalid characters/);
+  const cfg = await tc.saveConfig({ mode: 'ssh', ssh: { host: 'mini', user: 'dev', image: 'xilinx/ise:14.7' } });
+  assert.equal(tc.iseStatus(cfg, { ise: {}, helpers: { ssh: '/x', tar: '/x' } }).reason, 'remote host dev@mini (docker image xilinx/ise:14.7)');
+  await tc.saveConfig({ mode: 'local', ssh: { host: '', user: '', image: '' } });
+});
+
 test('ssh remote dir sanitising', () => {
   assert.equal(ise.remoteDirFor({ ssh: { remoteDir: '~/builds/' } }, 'p'), 'builds/p');
   assert.equal(ise.remoteDirFor({ ssh: { remoteDir: '/scratch/x' } }, 'p'), '/scratch/x/p');

@@ -137,6 +137,8 @@ uiTest('open, switch and close projects (Open Project dialog, Recent Projects, S
   await recentSub();
   await page.click('.menu-popup.sub .mi', { text: 'Clear Recent Projects' });
   await page.waitFor(() => !localStorage.getItem('silinx.recent'), [], { what: 'recent list cleared' });
+  // the menus closed before File is opened again (a click on an open menu closes it)
+  await page.waitFor(() => !document.querySelector('.menu-popup') && !document.querySelector('#menubar .item.open'), [], { what: 'menus closed' });
   assert.deepEqual(await recentSub(), [['Clear Recent Projects', true]]);
   await page.closeMenus();
   assert.deepEqual((await env.server.api('GET', '/api/projects')).map((p) => p.name).filter((n) => ['Alpha', 'Beta'].includes(n)).sort(), ['Alpha', 'Beta'], 'the projects are kept');

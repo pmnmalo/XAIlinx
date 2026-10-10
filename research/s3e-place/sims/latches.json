@@ -1,0 +1,7 @@
+{
+  "description": "latches (designs/latches.v): gate with enable and clear (LDCE), active-low gate with preset (LDPE); the gates change half a period after the data",
+  "dir": "../designs",
+  "files": ["latches.v"],
+  "top": "latches",
+  "sim": { "clock": "clk", "period": 20000, "cycles": 5000, "late": ["g", "ge", "g2"], "prob": { "clr": 0.1, "pre": 0.1 } }
+}

@@ -1,0 +1,13 @@
+{
+  "description": "flip-flop kinds: synchronous / asynchronous set and reset, clock enable, falling edge",
+  "dir": "../designs",
+  "files": [
+    "ffs.v"
+  ],
+  "top": "ffs",
+  "sim": {
+    "clock": "clk",
+    "period": 20000,
+    "cycles": 5000
+  }
+}

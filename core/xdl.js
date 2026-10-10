@@ -43,7 +43,8 @@ function tokenize(text) {
   const src = String(text).split('\n').filter(l => !/^\s*#/.test(l)).join('\n');
   const re = /"((?:[^"\\]|\\.)*)"|([,;])|([^\s,;"]+)/g;
   let m;
-  while ((m = re.exec(src))) toks.push(m[1] !== undefined ? { s: m[1].replace(/\\(.)/g, '$1'), raw: m[1].replace(/\\"/g, '"') } : m[2] ? { p: m[2] } : { w: m[3] });
+  // quoted strings keep their raw text too (with its escapes), for writeXdl()
+  while ((m = re.exec(src))) toks.push(m[1] !== undefined ? { s: m[1].replace(/\\(.)/g, '$1'), raw: m[1] } : m[2] ? { p: m[2] } : { w: m[3] });
   return toks;
 }
 
@@ -76,14 +77,13 @@ export function parseXdl(text) {
   const next = () => t[i++];
   const word = () => { const x = t[i]; if (x && x.w !== undefined) { i++; return x.w; } return null; };
   const str = () => { const x = t[i]; if (x && x.s !== undefined) { i++; return x.s; } return null; };
-  // a configuration string keeps its escapes ('\\:' in names) for parseCfg
-  const rawStr = () => { const x = t[i]; if (x && x.raw !== undefined) { i++; return x.raw; } return null; };
+  const raw = () => t[i - 1].raw;   // the raw text of the string str() just read
   const skipTo = () => { while (i < t.length && t[i].p !== ';') i++; i++; };
   while (i < t.length) {
     const tk = next();
     if (tk.w === 'design') {
       out.name = str(); out.part = word();
-      while (i < t.length && t[i].p !== ';') { if (t[i].w === 'cfg') { i++; out.cfg = str(); } else i++; }
+      while (i < t.length && t[i].p !== ';') { if (t[i].w === 'cfg') { i++; out.cfg = str(); out.cfgRaw = raw(); } else i++; }
       i++;
     } else if (tk.w === 'inst') {
       const inst = { name: str(), type: str(), placed: false, tile: null, site: null, cfg: [] };
@@ -91,7 +91,8 @@ export function parseXdl(text) {
       const how = word();
       if (how === 'placed') { inst.placed = true; inst.tile = word(); inst.site = word(); }
       while (i < t.length && t[i].p !== ';') {
-        if (t[i].w === 'cfg') { i++; inst.cfg = parseCfg(rawStr()); } else if (t[i].w === 'module') { i++; inst.module = str(); } else i++;
+        // a configuration string is parsed with its escapes ('\\:' in names) except the quotes'
+        if (t[i].w === 'cfg') { i++; str(); inst.cfgRaw = raw(); inst.cfg = parseCfg(inst.cfgRaw.replace(/\\"/g, '"')); } else if (t[i].w === 'module') { i++; inst.module = str(); } else i++;
       }
       i++;
       out.insts.push(inst);
@@ -102,7 +103,7 @@ export function parseXdl(text) {
         const x = next();
         if (x.w === 'outpin' || x.w === 'inpin') { const inst = str(); const pin = word(); (x.w === 'outpin' ? net.outpins : net.inpins).push({ inst, pin }); }
         else if (x.w === 'pip') { const tile = word(), from = word(), dir = word(), to = word(); net.pips.push({ tile, from, dir, to }); }
-        else if (x.w === 'cfg') str();
+        else if (x.w === 'cfg') { str(); net.cfgRaw = raw(); }
       }
       i++;
       out.nets.push(net);
@@ -111,6 +112,33 @@ export function parseXdl(text) {
     }
   }
   return out;
+}
+
+// ------------------------------------------------------------------ writing XDL
+const q = x => `"${String(x).replace(/(["\\])/g, '\\$1')}"`;
+// a configuration string from its items (when the raw text is not known): colons and spaces in
+// names escaped as in ISE's output
+const cfgText = items => items.map(c => `${c.attr}:${String(c.name).replace(/([: \\])/g, '\\$1')}:${String(c.value).replace(/([ \\])/g, '\\$1')}`).join(' ');
+
+/** XDL text of a design (parseXdl's structure; insts and nets in their order): what xdl -xdl2ncd reads.
+ *  The configuration strings are written back as they were read (cfgRaw) when known. */
+export function writeXdl(design) {
+  const L = [];
+  L.push(`design ${q(design.name)} ${design.part} v3.2 ,`);
+  L.push(`  cfg "${design.cfgRaw ?? String(design.cfg || '').replace(/(["\\])/g, '\\$1')}";`, '');
+  for (const i of design.insts) {
+    L.push(`inst ${q(i.name)} ${q(i.type)},${i.placed ? `placed ${i.tile} ${i.site}` : 'unplaced'}  ,`);
+    L.push(`  cfg "${i.cfgRaw ?? ` ${cfgText(i.cfg)} `}"`, '  ;');
+  }
+  L.push('');
+  for (const n of design.nets) {
+    L.push(`net ${q(n.name)} ${n.type && n.type !== 'wire' ? n.type : ''}, ${n.cfgRaw !== undefined ? `cfg "${n.cfgRaw}",` : ''}`);
+    for (const p of n.outpins) L.push(`  outpin ${q(p.inst)} ${p.pin} ,`);
+    for (const p of n.inpins) L.push(`  inpin ${q(p.inst)} ${p.pin} ,`);
+    for (const p of n.pips) L.push(`  pip ${p.tile} ${p.from} ${p.dir} ${p.to} ,`);
+    L.push('  ;');
+  }
+  return L.join('\n') + '\n';
 }
 
 // ------------------------------------------------------------------ the model of the view

@@ -1,0 +1,20 @@
+{
+  "description": "8-bit counter and comparator (carry chains, a chain that needs its own first stage)",
+  "dir": "../designs",
+  "files": [
+    "counter.v"
+  ],
+  "top": "counter",
+  "sim": {
+    "clock": "clk",
+    "period": 20000,
+    "cycles": 5000,
+    "start": {
+      "rst": 1
+    },
+    "prob": {
+      "rst": 0.01,
+      "en": 0.7
+    }
+  }
+}

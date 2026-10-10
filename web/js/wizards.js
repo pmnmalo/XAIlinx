@@ -790,7 +790,7 @@ export async function toolchainDialog() {
   let tc;
   try { tc = await api.toolchain(); } catch (e) { return alertDlg('Toolchain', e.message, 'error'); }
   const cfg = JSON.parse(JSON.stringify(tc.config));
-  const mode = select([['local', 'Local (ISE installed on this machine)'], ['docker', 'Docker image with ISE 14.7'], ['ssh', 'Remote Linux host via SSH']], cfg.mode);
+  const mode = select([['local', 'Local (Xilinx ISE installed locally)'], ['docker', 'Docker image with Xilinx ISE'], ['ssh', 'Remote host with Xilinx ISE via SSH']], cfg.mode);
   const inputs = {
     'local.settings': h('input', { type: 'text', value: cfg.local.settings || '', placeholder: 'auto-detect (…/14.7/ISE_DS/settings64.sh)' }),
     'docker.image': h('input', { type: 'text', value: cfg.docker.image || '', placeholder: 'e.g. my-ise:14.7' }),
@@ -800,15 +800,16 @@ export async function toolchainDialog() {
     'ssh.port': h('input', { type: 'text', value: String(cfg.ssh.port || 22) }),
     'ssh.remoteDir': h('input', { type: 'text', value: cfg.ssh.remoteDir || '' }),
     'ssh.settings': h('input', { type: 'text', value: cfg.ssh.settings || '' }),
+    'ssh.image': h('input', { type: 'text', value: cfg.ssh.image || '', placeholder: 'none: ISE installed on the host' }),
     'programmer.tool': select([['', 'Board default'], 'impact', 'djtgcfg', 'adepttool', 'xc3sprog', 'openFPGALoader'], cfg.programmer.tool || ''),
     'programmer.cable': h('input', { type: 'text', value: cfg.programmer.cable || '', placeholder: 'board default' }),
   };
   const groups = {
-    local: ['local.settings'], docker: ['docker.image', 'docker.settings'], ssh: ['ssh.host', 'ssh.user', 'ssh.port', 'ssh.remoteDir', 'ssh.settings'],
+    local: ['local.settings'], docker: ['docker.image', 'docker.settings'], ssh: ['ssh.host', 'ssh.user', 'ssh.port', 'ssh.remoteDir', 'ssh.image', 'ssh.settings'],
   };
   const labels = {
     'local.settings': 'ISE settings64.sh:', 'docker.image': 'Docker image:', 'docker.settings': 'settings64.sh in image:',
-    'ssh.host': 'Host:', 'ssh.user': 'User:', 'ssh.port': 'Port:', 'ssh.remoteDir': 'Remote build dir:', 'ssh.settings': 'Remote settings64.sh:',
+    'ssh.host': 'Host:', 'ssh.user': 'User:', 'ssh.port': 'Port:', 'ssh.remoteDir': 'Remote build dir:', 'ssh.image': 'Docker image on the remote host:', 'ssh.settings': 'Remote settings64.sh:',
     'programmer.tool': 'Programmer tool:', 'programmer.cable': 'Cable:',
   };
   const modeBox = h('div', { class: 'form-grid' });

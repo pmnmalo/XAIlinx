@@ -25,4 +25,7 @@ jobs:
         env:
           CHROME_PATH: /usr/bin/google-chrome
           SILINX_UI_INTERFACE: classic
+      - name: Memory in WebKit (Safari's engine)
+        run: npx playwright install --with-deps webkit && npm run test:webkit
+        timeout-minutes: 15
       - run: node scripts/build-standalone.mjs

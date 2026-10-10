@@ -1,0 +1,22 @@
+{
+  "description": "test/fixtures/designs/latch: latches with gate enable, clear, preset, active-low gate",
+  "dir": "../../../test/fixtures/designs/latch",
+  "files": [
+    "top.vhd"
+  ],
+  "top": "top",
+  "sim": {
+    "clock": "clk",
+    "period": 20000,
+    "cycles": 3000,
+    "late": [
+      "g",
+      "g3"
+    ],
+    "prob": {
+      "clr": 0.1,
+      "pre": 0.1
+    }
+  },
+  "ucf": "top.ucf"
+}

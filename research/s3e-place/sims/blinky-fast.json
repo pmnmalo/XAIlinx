@@ -1,0 +1,29 @@
+{
+  "description": "the blinky example with its generics reduced (test/fixtures/designs/blinky: DIV = 2, DEBOUNCE = 3) so that the LEDs move within a few hundred cycles",
+  "dir": "../../../test/fixtures/designs/blinky",
+  "files": [
+    "counter.v",
+    "knight.vhd",
+    "speed_ctrl.vhd",
+    "top.vhd"
+  ],
+  "top": "top",
+  "sim": {
+    "clock": "clk",
+    "period": 20000,
+    "cycles": 20000,
+    "start": {
+      "sw": 1
+    },
+    "bitprob": {
+      "sw": [
+        0.01,
+        0.5,
+        0.15,
+        0.3
+      ]
+    },
+    "hold": 12
+  },
+  "ucf": "top.ucf"
+}

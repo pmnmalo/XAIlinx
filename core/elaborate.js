@@ -182,14 +182,17 @@ function elabInstance(ctx, mod, name, path, paramOverrides, portConns, parentIns
   };
   // parameters / generics
   for (const p of mod.params) {
-    let entry;
+    let entry, given = false;   // given: set by the instance (generic map / #(…)), not the default
     try {
       const ov = paramOverrides.get(p.name) ?? paramOverrides.get(p.name.toLowerCase());
       const ptype = p.type ? elabType(E, p.type) : null;
       if (ov && !p.local) {
+        given = true;
         entry = { kind: 'const', val: ov.val, t: ov.t };
+        // a VHDL boolean generic set from Verilog: "TRUE" / "FALSE", as Xilinx writes boolean attributes
+        if (ptype?.kind === 'bool' && /^(true|false)$/i.test(ov.val?.str ?? '')) entry = { kind: 'const', val: V.fromBool(/^true$/i.test(ov.val.str)), t: ptype };
         // an unconstrained generic (INIT : std_logic_vector) takes the actual's width
-        if (ptype && ptype.unconstrained && ov.t && ov.t.kind === ptype.kind) entry = { kind: 'const', val: ov.val, t: { ...ov.t, s: ptype.s } };
+        else if (ptype && ptype.unconstrained && ov.t && ov.t.kind === ptype.kind) entry = { kind: 'const', val: ov.val, t: { ...ov.t, s: ptype.s } };
         else if (ptype && ptype.kind !== 'str') entry = { kind: 'const', val: fitVal(ov.val, ptype), t: ptype };
         else if (ptype && ov.text !== undefined) entry = { kind: 'const', val: { str: ov.text }, t: STR };   // NAME => "u1"
       } else if (p.default) {
@@ -203,7 +206,7 @@ function elabInstance(ctx, mod, name, path, paramOverrides, portConns, parentIns
       entry = { kind: 'const', val: V.fromInt(0), t: INT };
     }
     E.sc.def(p.name, entry);
-    inst.params.push({ name: p.name, value: entry.val, t: entry.t });
+    inst.params.push({ name: p.name, value: entry.val, t: entry.t, given });
   }
   // declarations: types & constants first (they may size ports), then ports, then the rest
   // Functions are only registered here (bodies bind at call time), so constants may call them.
@@ -217,7 +220,9 @@ function elabInstance(ctx, mod, name, path, paramOverrides, portConns, parentIns
   if (String(mod.file || '').startsWith('<silinx>/')) {
     const nat = nativePrimitive(mod.name, inst.params, inst.ports);
     if (nat) {
-      for (const [sig, v] of nat.init) { sig.init = v; sig.val = v; }
+      // (an output connected to a whole Verilog net is that net: it starts at the primitive's
+      // INIT, not at the x of a driven net)
+      for (const [sig, v] of nat.init) { sig.init = v; sig.val = v; sig.netZ = false; }
       const proc = addProc(E, { name: mod.name.toUpperCase(), kind: 'native', mode: 'native', native: nat.fn, body: { k: 'null' },
         triggers: nat.inputs.map((sig) => ({ sig, edge: 'any' })), lang: 'vhdl', loc: mod.loc, file: inst.file, inst });
       proc.writes = new Set(nat.outputs);

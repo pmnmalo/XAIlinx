@@ -1,0 +1,13 @@
+{
+  "description": "64:1 multiplexer, registered (MUXF5..F8 in their CLB pattern)",
+  "dir": "../designs",
+  "files": [
+    "mux64.v"
+  ],
+  "top": "mux64",
+  "sim": {
+    "clock": "clk",
+    "period": 20000,
+    "cycles": 5000
+  }
+}

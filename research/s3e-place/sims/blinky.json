@@ -1,0 +1,29 @@
+{
+  "description": "examples/blinky as it is (its prescaler divides by 2^22: the LEDs hardly move in a simulation; see blinky-fast.json)",
+  "dir": "../../../examples/blinky/src",
+  "files": [
+    "counter.v",
+    "knight.vhd",
+    "speed_ctrl.vhd",
+    "top.vhd"
+  ],
+  "top": "top",
+  "sim": {
+    "clock": "clk",
+    "period": 20000,
+    "cycles": 3000,
+    "start": {
+      "sw": 1
+    },
+    "bitprob": {
+      "sw": [
+        0.01,
+        0.5,
+        0.15,
+        0.3
+      ]
+    },
+    "hold": 12
+  },
+  "ucf": "../constraints/top.ucf"
+}

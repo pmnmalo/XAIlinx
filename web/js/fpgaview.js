@@ -367,12 +367,17 @@ export function mountFpgaView(el, { model, top = '', entities = new Map(), onSel
     const order = { clock: 0, signal: 1, power: 2 };
     const list = model.nets.map((n, i) => [n, i]).filter(([n]) => n.kind !== 'power' || q).filter(([n]) => !q || n.name.toLowerCase().includes(q))
       .sort((a, b) => order[a[0].kind] - order[b[0].kind] || a[0].name.localeCompare(b[0].name, undefined, { numeric: true }));
-    for (const [n, i] of list.slice(0, 300)) netsBox.append(h('div', { class: `fv-netrow${i === selNet ? ' sel' : ''}` }, netLink(i), h('span', { class: 'fv-hint' }, n.kind === 'clock' ? ` clock · ${n.loads.length}` : ` ${n.loads.length}`)));
+    for (const [n, i] of list.slice(0, 300)) netsBox.append(h('div', { class: `fv-netrow${i === selNet ? ' sel' : ''}`, 'data-ni': String(i) }, netLink(i), h('span', { class: 'fv-hint' }, n.kind === 'clock' ? ` clock · ${n.loads.length}` : ` ${n.loads.length}`)));
     if (list.length > 300) netsBox.append(h('div', { class: 'fv-hint' }, `… ${list.length - 300} more: type part of the name`));
     // sites by name too
     if (q) for (const [inst, i] of model.insts.map((x, k) => [x, k]).filter(([x]) => x.placed && (x.site.toLowerCase() === q || x.name.toLowerCase() === q)).slice(0, 5))
       netsBox.prepend(h('div', { class: 'fv-netrow' }, instLink(i, `${inst.site} — ${inst.name}`)));
     if (!netsBox.childElementCount) netsBox.append(h('div', { class: 'fv-hint' }, 'No net matches.'));
+  }
+
+  // the selected net in the list, without rebuilding it (a selection must not redo up to 300 rows)
+  function markNet() {
+    for (const row of netsBox.querySelectorAll('.fv-netrow[data-ni]')) row.classList.toggle('sel', +row.dataset.ni === selNet);
   }
 
   // ------------------------------------------------------------------ connections drawn on the chip
@@ -408,12 +413,12 @@ export function mountFpgaView(el, { model, top = '', entities = new Map(), onSel
   }
   function select(i, { center = false } = {}) {
     selInst = i; selNet = -1;
-    details(); highlight(); overlay(); netList();
+    details(); highlight(); overlay(); markNet();
     if (center && i >= 0) { const c = centre(i); if (c) { vb.x = c[0] - vb.w / 2; vb.y = c[1] - vb.h / 2; apply(); } }
   }
   function showNet(ni) {
     selNet = ni;
-    overlay(); netList();
+    overlay(); markNet();
     const n = model.nets[ni];
     // zoom to what it connects
     const pts = [n.driver, ...n.loads].filter(Boolean).map(([k]) => centre(k)).filter(Boolean);

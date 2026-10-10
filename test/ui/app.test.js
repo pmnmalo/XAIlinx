@@ -112,6 +112,9 @@ uiTest('every menu opens and every enabled item acts or opens its dialog', E, as
       }
       const before = await page.eval(() => window.__sig());
       await page.click('body > .menu-popup > .mi', { index: idx });
+      // the FPGA view first asks the server for the routed design, then (none here) asks whether to
+      // run Implement Design: wait for that question, which can come after the other checks
+      if (it.label === 'Implemented Design (FPGA View)') await page.waitDialog('View Implemented Design (FPGA)');
       const changed = await page.waitFor((b) => window.__sig() !== b, [before], { timeout: 8000 }).catch(() => false);
       (changed ? acted : idle).push(name);
       // what it did: an error message box is a failure
@@ -179,6 +182,34 @@ uiTest('dialogs close with Escape and only the topmost dialog handles Enter / Es
   await page.waitDialog('Toolchain Settings');
   await page.dialogButton('Cancel');
   await page.waitNoDialog();
+});
+
+uiTest('Toolchain Settings: the SSH mode takes a Docker image on the remote host (e.g. an Intel Mac)', E, async (page) => {
+  await page.menu('Tools', 'Toolchain Settings (ISE / Programmers)…');
+  await page.waitDialog('Toolchain Settings');
+  assert.deepEqual(await page.eval(() => [...document.querySelector('.dlg-overlay select').options].map((o) => o.textContent)),
+    ['Local (Xilinx ISE installed locally)', 'Docker image with Xilinx ISE', 'Remote host with Xilinx ISE via SSH']);
+  await page.eval(() => { const s = document.querySelector('.dlg-overlay select'); s.value = 'ssh'; s.dispatchEvent(new Event('change')); });
+  const labels = await page.eval(() => [...document.querySelectorAll('.dlg-overlay .form-grid label')].map((l) => l.textContent));
+  assert.deepEqual(labels.slice(1, 7), ['Host:', 'User:', 'Port:', 'Remote build dir:', 'Docker image on the remote host:', 'Remote settings64.sh:']);
+  const field = (label) => page.eval((l) => { const ls = [...document.querySelectorAll('.dlg-overlay .form-grid label')]; const i = ls.findIndex((x) => x.textContent === l); return ls[i].nextElementSibling.placeholder; }, label);
+  assert.equal(await field('Docker image on the remote host:'), 'none: ISE installed on the host');
+  const set = (label, v) => page.eval((l, val) => { const ls = [...document.querySelectorAll('.dlg-overlay .form-grid label')]; const inp = ls.find((x) => x.textContent === l).nextElementSibling; inp.value = val; }, label, v);
+  await set('Host:', 'mini'); await set('User:', 'dev'); await set('Docker image on the remote host:', ' xilinx/ise:14.7 ');
+  await page.dialogButton('Save');
+  await page.waitNoDialog();
+  await page.waitConsole(/Toolchain settings saved \(ssh: remote host dev@mini \(docker image xilinx\/ise:14\.7\)\)/);
+  const tc = await env.server.api('GET', '/api/toolchain');
+  assert.equal(tc.config.mode, 'ssh');
+  assert.equal(tc.config.ssh.image, 'xilinx/ise:14.7');
+  // reopened, the dialog shows it; emptied, the host's own ISE is used again
+  await page.menu('Tools', 'Toolchain Settings (ISE / Programmers)…');
+  await page.waitDialog('Toolchain Settings');
+  assert.equal(await page.eval(() => document.querySelector('.dlg-overlay select').value), 'ssh');
+  assert.equal(await page.eval(() => { const ls = [...document.querySelectorAll('.dlg-overlay .form-grid label')]; return ls.find((x) => x.textContent === 'Docker image on the remote host:').nextElementSibling.value; }), 'xilinx/ise:14.7');
+  await page.dialogButton('Cancel');
+  await page.waitNoDialog();
+  await env.server.api('PUT', '/api/toolchain', { mode: 'local', ssh: { host: '', user: '', image: '' } });
 });
 
 uiTest('About shows the version and the GitHub link', E, async (page) => {

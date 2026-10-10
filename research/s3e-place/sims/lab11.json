@@ -1,0 +1,31 @@
+{
+  "description": "lab11 (a student project, not in the repository: ~/Silinx-projects/lab11). bit_ready is the clock of access_module: changed half a period after the other inputs, as a button is never pressed at the same instant a switch moves",
+  "dir": "~/Silinx-projects/lab11/src",
+  "files": [
+    "access_module.vhd",
+    "data.vhd",
+    "control.vhd",
+    "disp_basys2_SL.vhd",
+    "main.vhd"
+  ],
+  "top": "main",
+  "sim": {
+    "clock": "clk",
+    "period": 20000,
+    "cycles": 20000,
+    "hold": 6,
+    "start": {
+      "rst": 1
+    },
+    "prob": {
+      "rst": 0.01,
+      "exec": 0.5,
+      "display_sel": 0.5,
+      "bit_ready": 0.5
+    },
+    "late": [
+      "bit_ready"
+    ]
+  },
+  "ucf": "../constraints/pins.ucf"
+}

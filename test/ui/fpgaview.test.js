@@ -126,6 +126,15 @@ uiTest('FPGA view: chip, modules, a site\'s logic and connections, nets, clock n
   await page.waitFor((v) => document.querySelectorAll(`${v} .fv-picked line`).length === 2, [V], { what: 'net a_IBUF drawn' });
   assert.equal(await page.eval((v) => document.querySelectorAll(`${v} .fv-picked .fv-route`).length, V), 3);
   assert.match(await page.eval((v) => document.querySelector(`${v} .fv-info`).textContent, V), /^Net a_IBUF: 2 load\(s\), 3 routing switch\(es\) in 3 tile\(s\)$/);
+  // the net is marked in the nets list, which is not rebuilt by a selection (the same row elements)
+  const rows = await page.eval((v) => { window.__fvRows = [...document.querySelectorAll(`${v} .fv-netrow`)]; return window.__fvRows.filter((r) => r.classList.contains('sel')).map((r) => r.querySelector('a').textContent); }, V);
+  assert.deepEqual(rows, ['a_IBUF']);
+  await page.click(`${V} .fv-site[data-i="${q}"]`);
+  await page.waitFor((v) => !document.querySelector(`${v} .fv-picked`), [V], { what: 'site selected again' });
+  assert.deepEqual(await page.eval((v) => {
+    const now = [...document.querySelectorAll(`${v} .fv-netrow`)];
+    return { same: now.length === window.__fvRows.length && now.every((r, k) => r === window.__fvRows[k]), sel: now.filter((r) => r.classList.contains('sel')).length };
+  }, V), { same: true, sel: 0 });
   // the clock network
   await page.click(`${V} .fv-bar .btn`, { text: 'Clock network' });
   await page.waitFor((v) => document.querySelectorAll(`${v} .fv-clock line`).length === 2, [V], { what: 'clock network' });

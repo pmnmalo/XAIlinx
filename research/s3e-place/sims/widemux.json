@@ -1,0 +1,13 @@
+{
+  "description": "32:1 and registered 8:1 multiplexers",
+  "dir": "../designs",
+  "files": [
+    "widemux.v"
+  ],
+  "top": "widemux",
+  "sim": {
+    "clock": "clk",
+    "period": 20000,
+    "cycles": 5000
+  }
+}

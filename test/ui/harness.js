@@ -325,7 +325,10 @@ export class Page {
       await this.mouse('mousePressed', x, y);
       await this.mouse('mouseReleased', x, y);
     }
-    await this.waitForSelector('body > .menu-popup');
+    // this menu's popup: its title is the open one and only one top-level popup is left (a popup of
+    // the menu open before can still be there for a moment, and would be read instead: a CI-only race)
+    await this.waitFor((i) => document.querySelectorAll('#menubar .item')[i].classList.contains('open')
+      && document.querySelectorAll('body > .menu-popup:not(.sub)').length === 1, [idx], { what: `menu '${label}' open` });
     return this.eval(() => [...document.querySelectorAll('body > .menu-popup > .mi')].map((r) => ({ label: r.querySelector('.lbl').textContent, disabled: r.classList.contains('disabled'), submenu: r.querySelector('.sc').textContent === '▸' })));
   }
   /** Close the open menus the way the app does (a mouse press outside them). */

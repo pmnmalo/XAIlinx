@@ -204,6 +204,26 @@ test('ssh mode: build dir is uploaded with tar over ssh, run remotely and the re
   assert.ok(j2.lines.some(l => /Connection refused/.test(l)));
 });
 
+test('ssh mode with a docker image on the remote host: the flow runs in that image there', async () => {
+  await writeConfig({ mode: 'ssh', ssh: { host: 'mini', user: 'dev', image: 'xilinx/ise:14.7' } });
+  const tc = await app.call('GET', '/toolchain');
+  assert.equal(tc.body.ise.available, true, tc.body.ise.reason);
+  assert.equal(tc.body.ise.reason, 'remote host dev@mini (docker image xilinx/ise:14.7)');
+  const dir = await makeProject('FlowDock');
+  process.env.FAKE_SSH_LOG = path.join(tmp, 'ssh-dock.log');
+  process.env.FAKE_DOCKER_LOG = path.join(tmp, 'docker-dock.log');
+  const j = await waitJob(jobs, await implement('FlowDock', { steps: ['synth'] }));
+  assert.equal(j.status, 'ok', j.lines.join('\n'));
+  assert.equal(j.result.mode, 'ssh');
+  assert.deepEqual(j.result.completedSteps, ['synth']);
+  assert.ok(fss.existsSync(path.join(process.env.FAKE_SSH_HOME, 'silinx-build', 'FlowDock', 'top.syr')), 'ran on the remote host');
+  assert.ok(fss.existsSync(path.join(dir, 'build', 'top.syr')), 'results downloaded');
+  const log = await fs.readFile(process.env.FAKE_SSH_LOG, 'utf8');
+  assert.match(log, /^dev@mini rm -rf silinx-build\/FlowDock && mkdir -p silinx-build\/FlowDock && tar -C silinx-build\/FlowDock -xf -$/m);
+  assert.match(log, /^dev@mini export PATH="\$PATH:\/usr\/local\/bin:\/opt\/homebrew\/bin"; cd silinx-build\/FlowDock && docker run --rm -v "\$PWD":\/work -w \/work -e ISE_SETTINGS=\/opt\/Xilinx\/14.7\/ISE_DS\/settings64.sh xilinx\/ise:14.7 bash run.sh synth$/m);
+  assert.match(await fs.readFile(process.env.FAKE_DOCKER_LOG, 'utf8'), /^run --rm -v .*silinx-build\/FlowDock:\/work -w \/work -e ISE_SETTINGS=\S+ xilinx\/ise:14.7 bash run.sh synth$/m);
+});
+
 test('ssh mode: not configured / remote dir rejected', async () => {
   await writeConfig({ mode: 'ssh', ssh: { host: '' } });
   assert.match((await app.call('GET', '/toolchain')).body.ise.reason, /no ssh host configured/);

@@ -12,12 +12,19 @@
 //   - clocked processes (rising_edge / falling_edge, clk'event, Verilog @(posedge …)), with
 //     asynchronous resets before the clock, become edge-triggered always blocks; the others are
 //     combinational (always @*); VHDL signal assignments are non-blocking, variables blocking;
-//   - integer signals get the width of their range; functions become automatic functions.
+//   - integer signals get the width of their range; functions become automatic functions;
+//   - initial blocks (and VHDL processes that end in a bare `wait;`) are run once, by the
+//     simulator's interpreter, and what they leave in the signals becomes their initial values;
+//   - the Xilinx primitives instantiated by name (RAMB16_*, BUFG, DCM_SP, MULT18X18SIO, SRL16E…)
+//     stay instances of the primitive, with their generics and ports: Silinx's simulation models
+//     of them (core/unisim.js) are not translated.
 // What cannot be synthesized (waits with a time, file I/O, reals…) is reported, not guessed.
 //
-//   const { text, top, warnings } = toVerilog(design)   // design = elaborate(lib, top)
+//   const { text, top, warnings, primitives } = toVerilog(design)   // design = elaborate(lib, top)
+//   (primitives: the names of the Xilinx primitives the text instantiates; to simulate the text,
+//   compile it with core/unisim.js's UNISIM_SOURCE)
 import * as V from './values.js';
-import { bitpos, psliceLo } from './interp.js';
+import { bitpos, psliceLo, exec, applyWrite, SimError } from './interp.js';
 
 export class SynthError extends Error {
   constructor(msg, loc, file) { super(msg); this.loc = loc; this.file = file; }
@@ -65,13 +72,40 @@ export function toVerilog(design, { name } = {}) {
   const used = new Set();
   const uniq = n => { let k = n, i = 1; while (used.has(k.toLowerCase())) k = `${n}_${i++}`; used.add(k.toLowerCase()); return k; };
   const portOf = new Map(top.ports.map(p => [p.sig, p]));
-  for (const p of top.ports) sigName.set(p.sig, esc(uniq(p.name)));
-  for (const s of design.signals) if (!sigName.has(s)) sigName.set(s, esc(uniq(s.path.startsWith(prefix) ? s.path.slice(prefix.length) : s.path)));
 
   const decls = [], blocks = [], funcs = [];
   const funcName = new Map();    // fn -> Verilog function name
   const where = n => (n?.loc ? ` (line ${n.loc.line})` : '');
   const fail = (msg, n, file) => { throw new SynthError(msg + where(n), n?.loc, file); };
+
+  // ---------------- primitives instantiated by name
+  // An instance of a module of Silinx's own UNISIM library (core/unisim.js, file <silinx>/…) is a
+  // Xilinx primitive: Yosys knows it as a cell, so it stays an instance, with the generics the
+  // design gave it. Its simulation model (signals, processes, sub-instances) is left out; only
+  // its port signals remain, with the processes that drive its inputs from their actuals.
+  const prims = [], skipSig = new Set(), skipProc = new Set();
+  const primDriven = new Set();  // signals driven by a primitive's output: no initial value of their own
+  (function walk(inst) {
+    for (const c of inst.children || []) {
+      if (!String(c.file || '').startsWith('<silinx>/')) { walk(c); continue; }
+      if (c.file !== '<silinx>/unisim.vhd') fail(`${c.module} (${c.path}): the primitives of a post-implementation netlist (${c.file}) cannot be synthesized`, c, c.file);
+      const portSigs = new Set(c.ports.map(pt => pt.sig));
+      const inside = [];
+      (function all(i) { inside.push(i); (i.children || []).forEach(all); })(c);
+      const keep = [];
+      for (const i of inside) {
+        for (const sg of i.signals) if (!portSigs.has(sg)) skipSig.add(sg);
+        for (const p of i.procs) {
+          if (i === c && p.kind === 'glue' && [...(p.writes || [])].every(sg => portSigs.has(sg))) keep.push(p);
+          else skipProc.add(p);
+        }
+      }
+      for (const pt of c.ports) if (pt.dir !== 'in') primDriven.add(pt.sig);
+      prims.push({ inst: c, driven: new Set(keep.flatMap(p => [...(p.writes || [])])) });
+    }
+  })(top);
+  for (const p of top.ports) sigName.set(p.sig, esc(uniq(p.name)));
+  for (const s of design.signals) if (!sigName.has(s) && !skipSig.has(s)) sigName.set(s, esc(uniq(s.path.startsWith(prefix) ? s.path.slice(prefix.length) : s.path)));
 
   // ---------------- values: every expression as an unsigned, exactly-sized Verilog expression
   // fit(x, wFrom, sFrom, wTo): the value extended (by its own sign) or truncated to wTo bits
@@ -84,8 +118,12 @@ export function toVerilog(design, { name } = {}) {
   function ctxFor(proc) {
     return { proc, locals: new Map(), fn: null, flags: [] };
   }
+  // the variables of a function are its own (v<slot>); those of processes and inlined procedures
+  // become module-level registers named after their process. No dot in these names: Yosys takes a
+  // name with a dot for a hierarchical reference in places (as a for loop variable it unrolled the
+  // loop wrongly: every iteration wrote element 0 of the memory).
   const localName = (ctx, i, t) => {
-    if (!ctx.locals.has(i)) ctx.locals.set(i, { name: ctx.fn ? `v${i}` : esc(`${ctx.base}.v${i}`), t });
+    if (!ctx.locals.has(i)) ctx.locals.set(i, { name: ctx.fn && !ctx.parent ? `v${i}` : esc(uniq(`${ctx.base}_v${i}`)), t });
     return ctx.locals.get(i).name;
   };
 
@@ -158,8 +196,13 @@ export function toVerilog(design, { name } = {}) {
       case 'un': return un(n, ctx);
       case 'bin': return bin(n, ctx);
       case 'cond': {
+        // each branch cast to the width, even when it has it already: Yosys can size an operation on
+        // a size cast at the width of the cast's operand (4'(d) ^ 4'h3 with an 8-bit d: 8 bits),
+        // which made `oe ? (4'(d) ^ …) : 4'bzzzz` an 8-bit multiplexer with 0000zzzz on the other
+        // side, no longer a tri-state buffer
         const w = n.ew || t.w, c = truth(n.c, ctx), a = e(n.a, ctx), b = e(n.b, ctx);
-        return { x: `(${c} ? ${fit(a.x, a.w, a.s, w)} : ${fit(b.x, b.w, b.s, w)})`, w, s: !!t.s };
+        const br = v => { const x = fit(v.x, v.w, v.s, w); return /^\d+'[bh][0-9a-fxz]+$/.test(x) ? x : `${w}'(${x})`; };
+        return { x: `(${c} ? ${br(a)} : ${br(b)})`, w, s: !!t.s };
       }
       case 'cat': {
         const parts = n.parts.map(p => { const v = e(p, ctx); return fit(v.x, v.w, v.s, p.t.w); });
@@ -305,6 +348,8 @@ export function toVerilog(design, { name } = {}) {
       // Verilog functions return through their own name (a slot of the frame)
       if (f.retSlot != null) fctx.locals.set(f.retSlot, { name: fname, t: f.retT, param: true });
       const body = stmt(f.body, fctx, '    ', 'fn');
+      // the variables of the procedures inlined in the function are the function's own too
+      for (const l of fctx.extraLocals || []) fctx.locals.set(Symbol('inlined'), l);
       // the local variables start at their declared values on every call
       const init0 = f.frameInit ? f.frameInit() : [];
       const inits = [...fctx.locals.entries()].filter(([i, l]) => !l.param && init0[i] && !Array.isArray(init0[i]) && init0[i].v !== undefined && !init0[i].x)
@@ -481,7 +526,7 @@ export function toVerilog(design, { name } = {}) {
     const f = s.fn;
     if (!f?.body) fail(`procedure ${s.name || ''} cannot be synthesized (no body)`, s);
     if (mayLeave(f.body)) fail(`procedure ${f.name}: return inside a procedure is not supported by synthesis`, s);
-    const sub = { proc: ctx.proc, fn: ctx.fn, locals: new Map(), base: `${ctx.base}.${(f.name || 'proc').replace(/[^\w]/g, '_')}${taskN++}`, flags: ctx.flags, subst: new Map(), parent: ctx };
+    const sub = { proc: ctx.proc, fn: ctx.fn, locals: new Map(), base: `${ctx.base}_${(f.name || 'proc').replace(/[^\w]/g, '_')}${taskN++}`, flags: ctx.flags, subst: new Map(), parent: ctx };
     let pre = '';
     f.params.forEach((p, k) => {
       const a = s.args[k], out = s.outTargets?.[k];
@@ -493,7 +538,7 @@ export function toVerilog(design, { name } = {}) {
       } else if (out) sub.subst.set(p.i, { lv: out, rv: p.dir === 'inout' ? out : null, ctx });
     });
     const body = stmt(f.body, sub, ind, mode, loop);
-    (ctx.extraLocals ||= []).push(...sub.locals.values());
+    (ctx.extraLocals ||= []).push(...sub.locals.values(), ...(sub.extraLocals || []));
     return pre + body;
   }
 
@@ -566,6 +611,7 @@ export function toVerilog(design, { name } = {}) {
 
   let pn = 0;
   function process(p) {
+    if (p.mode === 'initial' || p.mode === 'loop') return initialProcess(p);
     const ctx = { proc: p, locals: new Map(), fn: null, base: `p${pn++}`, flags: [] };
     const file = p.file;
     try {
@@ -606,9 +652,12 @@ export function toVerilog(design, { name } = {}) {
       }
       if (hasEdge(p.body) && !head.includes('edge')) fail('a clock edge not at the top of the process', p);
       const loc = [...ctx.locals.values(), ...(ctx.extraLocals || [])].map(l => `  reg ${sgn(l.t) ? 'signed ' : ''}${l.t.kind === 'array' ? `[${wOf(l.t.elem) - 1}:0] ${l.name} [0:${l.t.len - 1}]` : `[${wOf(l.t) - 1}:0] ${l.name}`};`);
-      for (const f of ctx.flags) loc.push(`  reg ${esc(`${ctx.base}.${f}`)};`);
       let text = body;
-      for (const f of ctx.flags) text = text.replaceAll(new RegExp(`\\b${f}\\b`, 'g'), esc(`${ctx.base}.${f}`).trim() + ' ');
+      for (const f of ctx.flags) {
+        const nm = uniq(`${ctx.base}${f}`);
+        loc.push(`  reg ${nm};`);
+        text = text.replaceAll(new RegExp(`\\b${f}\\b`, 'g'), nm);
+      }
       // process variables first assigned in the process: blocking (as in VHDL)
       blocks.push(`${loc.join('\n')}${loc.length ? '\n' : ''}  // ${p.name || p.kind}${p.loc ? ` (${p.file || ''}:${p.loc.line})` : ''}\n  ${head} begin\n${text}  end`);
     } catch (err) {
@@ -617,31 +666,112 @@ export function toVerilog(design, { name } = {}) {
     }
   }
 
+  // ---------------- initial blocks
+  // An initial block without delays (or a VHDL process that ends in a bare `wait;`) only sets
+  // the values the design starts with. It is run here, once, by the simulator's own interpreter
+  // (so loops, functions, expressions mean exactly what they mean in simulation), on a stand-in
+  // for the simulator that records the assignments; what it leaves in each signal becomes that
+  // signal's initial value (the INIT of its flip-flops, the contents of its memory). Messages
+  // ($display, report) have no effect; delays, waits on events and file reads cannot be synthesized.
+  const initVal = new Map();     // signal -> its value after the initial blocks
+  const drivers = new Map();     // signal -> the processes (not initial) that assign it
+  for (const p of design.procs) if (p.mode !== 'initial' && p.mode !== 'loop') for (const s of p.writes || []) { if (!drivers.has(s)) drivers.set(s, []); drivers.get(s).push(p); }
+  function initialProcess(p) {
+    const saved = new Map(), nba = [];
+    try {
+      // a value read from a signal that another process drives depends on the order the
+      // processes start in at time 0: not an initial value
+      for (const s of p.reads || []) if (!p.writes?.has(s) && drivers.has(s)) fail(`an initial block that reads ${s.name}, which another process drives`, p);
+      const no = what => () => fail(`${what} cannot be synthesized`, p);
+      const write = (wr, v) => { const sg = wr.sig; if (!saved.has(sg)) saved.set(sg, sg.val); sg.val = applyWrite(sg.val, wr, v); };
+      const sim = {
+        now: 0, stamp: 0, write, nba: (wr, v) => nba.push([wr, v]), preempt() {}, print() {}, strobe() {}, monitor() {}, report() {}, finish() {},
+        after: no('a delayed assignment in an initial block'), readmem: no('$readmemh / $readmemb (the file is not read by synthesis)'), random: no('$random'),
+      };
+      const ctx = { frame: p.frameInit ? p.frameInit() : [], sim, depth: 0, timeUnit: p.timeUnit, scopeName: p.inst?.path };
+      const r = exec(p.body, ctx).next();
+      // it must end (or stop for good: VHDL wait; / $finish) without waiting for time or events;
+      // a VHDL process that runs to its end without waiting would start again at once
+      if (r.done ? p.mode === 'loop' : !r.value?.forever) fail('a process with waits cannot be synthesized', p);
+      for (const [wr, v] of nba) write(wr, v);
+      for (const sg of saved.keys()) initVal.set(sg, sg.val);
+    } catch (err) {
+      if (err instanceof SimError) err = new SynthError(`initial block: ${err.message}${where(p)}`, p.loc);
+      if (err instanceof SynthError) { err.file ||= p.file; err.proc = p.name; }
+      throw err;
+    } finally {
+      for (const [sg, v] of saved) sg.val = v;
+    }
+  }
+  for (const p of design.procs) if (!skipProc.has(p) && (p.mode === 'initial' || p.mode === 'loop')) process(p);
+
+  // ---------------- primitive instances
+  // A generic as Yosys's cell library (and the Xilinx Verilog UNISIM) declares it: strings and
+  // booleans ("TRUE" / "FALSE") as strings, reals with a decimal point, vectors sized.
+  function paramLit(prm, inst) {
+    const v = prm.value, t = prm.t || {};
+    if (v?.str !== undefined) return `"${v.str.replace(/["\\]/g, '\\$&')}"`;
+    if (v?.real !== undefined || t.kind === 'real') { const x = v.real ?? V.toNum(v); return Number.isInteger(x) ? x.toFixed(1) : String(x); }
+    if (t.kind === 'bool') return V.toNum(v) ? '"TRUE"' : '"FALSE"';
+    if (t.kind === 'time' || Array.isArray(v)) fail(`${inst.module} ${inst.name}: generic ${prm.name} has no synthesizable value`, inst, inst.file);
+    if (t.kind === 'int') { if (v.x) fail(`${inst.module} ${inst.name}: generic ${prm.name} is undefined`, inst, inst.file); return V.toDec(v, true); }
+    return lit(v);
+  }
+  // (the names of the primitives, their generics and ports are upper case in Yosys's library;
+  // VHDL gives them in whatever case the design wrote)
+  function instance({ inst, driven }) {
+    const params = inst.params.filter(prm => prm.given).map(prm => `    .${prm.name.toUpperCase()}(${paramLit(prm, inst)})`);
+    const conns = [];
+    for (const pt of inst.ports) {
+      let x = sigName.get(pt.sig);
+      // an input left unconnected (no actual drives its signal): the port's default value, if any
+      if (pt.dir === 'in' && !pt.alias && !driven.has(pt.sig)) {
+        const v = pt.sig.init;
+        x = v && !Array.isArray(v) && v.str === undefined && v.x !== (1n << BigInt(v.w)) - 1n ? lit(v) : '';
+      }
+      conns.push(`    .${pt.name.toUpperCase()}(${x})`);
+    }
+    const rel = inst.path.startsWith(prefix) ? inst.path.slice(prefix.length) : inst.name;
+    const iname = esc(uniq(rel.replace(/\./g, '_')));
+    const src = inst.parent?.file ? ` (${inst.parent.file})` : '';
+    blocks.push(`  // ${inst.path}: ${inst.module}${src}\n  ${inst.module.toUpperCase()}${params.length ? ` #(\n${params.join(',\n')}\n  )` : ''} ${iname} (\n${conns.join(',\n')}\n  );`);
+  }
+
   // ---------------- declarations
+  // the value a signal starts with: what the initial blocks left in it, else its declared initial
+  // value; none for the outputs of primitives (the primitive gives them their value)
+  const startVal = sg => (primDriven.has(sg) ? undefined : initVal.has(sg) ? initVal.get(sg) : sg.hasInit ? sg.init : undefined);
+  const allX = v => !v || v.w <= 0 || v.x === (1n << BigInt(v.w)) - 1n;
+  const initOf = (sg, w) => { const v = startVal(sg); return v && !Array.isArray(v) && v.str === undefined && !allX(v) ? ` = ${lit(V.resize(v, w), w)}` : ''; };
   const portDecl = [];
   for (const p of top.ports) {
     const s = p.sig, w = wOf(s.t);
-    portDecl.push(`  ${p.dir === 'in' ? 'input' : p.dir === 'out' ? 'output' : 'inout'} ${p.dir === 'in' ? 'wire' : 'logic'} ${sgn(s.t) ? 'signed ' : ''}${w > 1 || !s.t.scalar ? `[${w - 1}:0] ` : ''}${sigName.get(s)}`);
+    portDecl.push(`  ${p.dir === 'in' ? 'input' : p.dir === 'out' ? 'output' : 'inout'} ${p.dir === 'in' ? 'wire' : 'logic'} ${sgn(s.t) ? 'signed ' : ''}${w > 1 || !s.t.scalar ? `[${w - 1}:0] ` : ''}${sigName.get(s)}${p.dir === 'in' ? '' : initOf(s, w)}`);
   }
   for (const s of design.signals) {
-    if (portOf.has(s)) continue;
+    if (portOf.has(s) || skipSig.has(s)) continue;
     const t = s.t, name = sigName.get(s);
     if (t.kind === 'array' || Array.isArray(s.val)) {
       const et = t.elem || { w: s.val[0]?.w || 1 };
       const len = Array.isArray(s.init) ? s.init.length : (t.len ?? s.val.length);
       decls.push(`  logic ${et.s ? 'signed ' : ''}[${wOf(et) - 1}:0] ${name} [0:${len - 1}];`);
-      if (s.hasInit && Array.isArray(s.init)) blocks.push(`  initial begin\n${s.init.map((v, k) => `    ${name}[${k}] = ${lit(v, wOf(et))};`).join('\n')}\n  end`);
+      const v0 = startVal(s);
+      if (Array.isArray(v0)) {
+        if (v0.some(v => Array.isArray(v))) fail(`the initial value of ${s.name}, an array of arrays`, s, s.file);
+        const set = v0.map((v, k) => (allX(v) ? null : `    ${name}[${k}] = ${lit(v, wOf(et))};`)).filter(Boolean);
+        if (set.length) blocks.push(`  initial begin\n${set.join('\n')}\n  end`);
+      }
       continue;
     }
     if (t.kind === 'real' || t.kind === 'str' || t.kind === 'time') { warnings.push(`signal ${s.path}: ${t.kind} signals are not synthesized`); continue; }
     const w = wOf(t);
-    const init = s.hasInit && s.init && !Array.isArray(s.init) && !s.init.x ? ` = ${lit(V.resize(s.init, w), w)}` : '';
-    decls.push(`  logic ${sgn(t) ? 'signed ' : ''}[${w - 1}:0] ${name}${init};`);
+    decls.push(`  logic ${sgn(t) ? 'signed ' : ''}[${w - 1}:0] ${name}${initOf(s, w)};`);
   }
-  for (const p of design.procs) process(p);
+  for (const p of design.procs) if (!skipProc.has(p) && p.mode !== 'initial' && p.mode !== 'loop') process(p);
+  for (const pr of prims) instance(pr);
 
   const mod = esc(name || top.name);
   const text = `// Generated by Silinx (core/synth-verilog.js) from the design '${top.name}': one flat module for synthesis.\n`
     + `module ${mod} (\n${portDecl.join(',\n')}\n);\n${decls.join('\n')}\n${funcs.join('\n')}${funcs.length ? '\n' : ''}${blocks.join('\n')}\nendmodule\n`;
-  return { text, top: mod.trim(), warnings };
+  return { text, top: mod.trim(), warnings, primitives: [...new Set(prims.map(pr => pr.inst.module.toUpperCase()))] };
 }

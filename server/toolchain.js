@@ -4,8 +4,9 @@
 // can be executed in three modes, chosen by the user and saved in ~/.silinx/config.json:
 //   local  - ISE binaries on this machine (sourced from settings64.sh if not on PATH)
 //   docker - inside a user-supplied docker image that contains ISE, with build/ mounted at /work
-//   ssh    - build/ is streamed (tar over ssh) to a Linux host with ISE, run there,
-//            and the results are streamed back
+//   ssh    - build/ is streamed (tar over ssh) to another machine, run there (with ISE installed
+//            on it, or in a docker image on it: ssh.image, e.g. an Intel Mac) and the results
+//            are streamed back
 // Programmers always run locally (they need the USB device).
 
 import fs from 'node:fs/promises';
@@ -27,7 +28,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   mode: 'local',
   local: { settings: '' },                      // '' = auto-detect
   docker: { command: 'docker', image: '', platform: 'linux/amd64', settings: DEFAULT_SETTINGS, extraArgs: [] },
-  ssh: { host: '', user: '', port: 22, identity: '', remoteDir: 'silinx-build', settings: DEFAULT_SETTINGS, sshArgs: [] },
+  ssh: { host: '', user: '', port: 22, identity: '', remoteDir: 'silinx-build', settings: DEFAULT_SETTINGS, image: '', sshArgs: [] },   // image: docker image on the host ('' = ISE installed there)
   programmer: { tool: '', cable: '' },          // global defaults (board defaults take precedence when empty)
   paths: {},                                    // explicit binary paths, e.g. { djtgcfg: '/usr/local/bin/djtgcfg' }
 });
@@ -55,6 +56,7 @@ export async function saveConfig(partial) {
   for (const k of ['extraArgs']) if (!Array.isArray(cfg.docker[k])) throw Object.assign(new Error(`docker.${k} must be an array of strings`), { status: 400 });
   if (!Array.isArray(cfg.ssh.sshArgs)) throw Object.assign(new Error('ssh.sshArgs must be an array of strings'), { status: 400 });
   if (cfg.ssh.host && !/^[A-Za-z0-9._@:\-[\]]+$/.test(cfg.ssh.host)) throw Object.assign(new Error('ssh.host contains invalid characters'), { status: 400 });
+  if (cfg.ssh.image && !/^[\w./:@-]+$/.test(cfg.ssh.image)) throw Object.assign(new Error('ssh.image contains invalid characters'), { status: 400 });
   if (cfg.ssh.user && !/^[A-Za-z0-9._-]+$/.test(cfg.ssh.user)) throw Object.assign(new Error('ssh.user contains invalid characters'), { status: 400 });
   await fs.mkdir(configDir(), { recursive: true });
   await fs.writeFile(configPath(), JSON.stringify(cfg, null, 2) + '\n');
@@ -204,7 +206,7 @@ export function iseStatus(cfg, det) {
     if (!det.helpers.ssh) return { mode, available: false, reason: 'ssh not found', help };
     if (!det.helpers.tar) return { mode, available: false, reason: 'tar not found (used to copy the build directory over ssh)', help };
     if (!cfg.ssh.host) return { mode, available: false, reason: 'no ssh host configured (ssh.host)', help };
-    return { mode, available: true, reason: `remote host ${cfg.ssh.user ? cfg.ssh.user + '@' : ''}${cfg.ssh.host}`, help };
+    return { mode, available: true, reason: `remote host ${cfg.ssh.user ? cfg.ssh.user + '@' : ''}${cfg.ssh.host}${cfg.ssh.image ? ` (docker image ${cfg.ssh.image})` : ''}`, help };
   }
   return { mode, available: false, reason: `unknown mode '${mode}'`, help: HELP.local };
 }
@@ -212,5 +214,5 @@ export function iseStatus(cfg, det) {
 export const HELP = {
   local: 'Install Xilinx ISE 14.7 (WebPACK) on a Linux/Windows machine and either put its bin directory on PATH or set "local.settings" to .../14.7/ISE_DS/settings64.sh via PUT /api/toolchain. On macOS use mode "docker" (an x86-64 image containing ISE 14.7 at /opt/Xilinx/14.7/ISE_DS) or mode "ssh" (a Linux host with ISE). You can also choose "generate scripts only" and run build/run.sh on any machine with ISE.',
   docker: 'Set {"mode":"docker","docker":{"image":"<your-ise-image>","settings":"/opt/Xilinx/14.7/ISE_DS/settings64.sh"}} via PUT /api/toolchain. The image must already exist locally (Silinx never pulls/builds images). The build directory is mounted at /work and run.sh is executed there.',
-  ssh: 'Set {"mode":"ssh","ssh":{"host":"build-box","user":"me","remoteDir":"silinx-build","settings":"/opt/Xilinx/14.7/ISE_DS/settings64.sh"}} via PUT /api/toolchain. Password-less (key) authentication is required; the build directory is streamed with tar over ssh into <remoteDir>/<project> and the results are copied back the same way.',
+  ssh: 'Set {"mode":"ssh","ssh":{"host":"build-box","user":"me","remoteDir":"silinx-build","settings":"/opt/Xilinx/14.7/ISE_DS/settings64.sh"}} via PUT /api/toolchain. Password-less (key) authentication is required; the build directory is streamed with tar over ssh into <remoteDir>/<project> and the results are copied back the same way. With "image" (a docker image with ISE 14.7 on the host, e.g. on an Intel Mac) the flow runs in that image instead of an ISE installed on the host.',
 };
