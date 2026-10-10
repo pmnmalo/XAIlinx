@@ -29,9 +29,10 @@ for (let i = 0; i < args.length; i += 2) {
   const { feats } = designFeatures(design, db);
   const tiles = new Map();
   for (const f of feats) {
+    if (f.tile[0] === '@') continue;
     if (!tiles.has(f.tile)) { const t = tileOf(f.tile, db); tiles.set(f.tile, { tile: f.tile, type: t?.type, t, base: t && tileBase(t, db), unknown: new Set(), bits: new Set() }); }
   }
-  for (const u of unknown) tiles.get(u.tile)?.unknown.add(u.feature);
+  for (const u of unknown) if (u.tile[0] !== '@') tiles.get(u.tile)?.unknown.add(u.feature);
   const placed = [...tiles.values()].filter(t => t.base);
   for (const r of res) {
     let hit = false;

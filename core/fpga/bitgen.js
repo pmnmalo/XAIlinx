@@ -26,7 +26,7 @@ export function makeDb({ layout, lut, tiles }) {
   // a tile type may share the features of another (same switch box)
   // (its own features, measured on it, come first)
   for (const t of Object.values(types)) if (t.sameAs && types[t.sameAs]) t.feats = new Map([...types[t.sameAs].feats, ...t.feats]);
-  return { layout, lut, tiles, types, pads: tiles.pads || {} };
+  return { layout, lut, tiles, types, pads: tiles.pads || {}, padFeats: tiles.padFeatures || {} };
 }
 
 /** The type and the X / Y of a tile from its name (CLB_X3Y5 -> CENTER_SMALL… / 3 / 5). */
@@ -48,8 +48,16 @@ export function tileBase(tile, db) {
   return frame === undefined || bit === undefined ? null : { frame, bit };
 }
 
-// "df,db" (bit set to 1) or "!df,db" (bit cleared) -> [df, db, value]
-const parseBit = s => { const v = s[0] === '!' ? 0 : 1; const [df, db] = s.replace('!', '').split(',').map(Number); return [df, db, v]; };
+// "df,db" (bit set to 1) or "!df,db" (bit cleared) -> [df, db, value, dx, dy]; "df,db@dx,dy": the bit
+// is in the column / row of the tile dx, dy away (an I/O tile also configures its pads with bits in
+// the neighbouring tile's frames)
+export const parseBit = s => {
+  const v = s[0] === '!' ? 0 : 1;
+  const [pos, nb] = s.replace('!', '').split('@');
+  const [df, db] = pos.split(',').map(Number);
+  const [dx, dy] = nb ? nb.split(',').map(Number) : [0, 0];
+  return [df, db, v, dx, dy];
+};
 
 /** The features of a design: [{ tile: name, feature }] plus the LUT contents [{ site, lut: 'F' | 'G', bits }].
  *  A PIP is a feature only on a net with pins (bitgen does not program the routing of a net without
@@ -62,9 +70,20 @@ export function designFeatures(design, db) {
     if (!kind) continue;
     // the site is used: some settings are set for every used site
     feats.push({ tile: inst.tile, feature: `${kind}:USED` });
-    // a LUT not used in a used slice holds the constant 0 (written like any LUT: 16 ones, inverted)
-    if (/^SLICE/.test(kind)) for (const l of ['F', 'G']) {
+    // an I/O: its direction and I/O standard together ('O:LVCMOS33'), a feature of the pad itself
+    // (tile '@M5'): the pads do not repeat one pattern per tile type, so their bits are absolute
+    if (/^IOB\d/.test(kind)) {
+      const has = a => inst.cfg.some(c => c.attr === a && c.value !== '#OFF');
+      const mode = has('OUTBUF') ? (has('INBUF') ? 'IO' : 'O') : 'I';
+      const std = (inst.cfg.find(c => c.attr === 'IOATTRBOX') || {}).value || 'NONE';
+      feats.push({ tile: `@${inst.site}`, feature: `${mode}:${std}` });
+    }
+    // a LUT not used in a used slice holds the constant 0 (written like any LUT: 16 ones, inverted);
+    // a LUT used while the slice output after it (X for F, Y for G) is not used: bitgen sets the
+    // output multiplexer (FXMUX, GYMUX) to all ones (feature SLICEk:FXMUX:#OFF)
+    if (/^SLICE/.test(kind)) for (const [l, mux, used] of [['F', 'FXMUX', 'XUSED'], ['G', 'GYMUX', 'YUSED']]) {
       if (!inst.cfg.some(c => c.attr === l && /^#(LUT|ROM|RAM):/.test(c.value))) luts.push({ site: inst.site, lut: l, bits: new Array(16).fill(0), kind: 'OFF' });
+      else if (!inst.cfg.some(c => c.attr === used && c.value !== '#OFF')) feats.push({ tile: inst.tile, feature: `${kind}:${mux}:#OFF` });
     }
     for (const c of inst.cfg) {
       if (c.value === '#OFF' || c.attr.startsWith('_')) continue;
@@ -124,6 +143,13 @@ export function frameData(design, db, device = XC3S250E) {
   const seen = new Set();
   const clears = [];   // bits a feature clears are cleared after all the bits are set
   for (const { tile, feature } of feats) {
+    if (tile[0] === '@') {
+      // a pad's own feature: absolute positions
+      const bits = db.padFeats[tile.slice(1)]?.[feature];
+      if (!bits) { const k = `${tile} ${feature}`; if (!seen.has(k)) { seen.add(k); unknown.push({ tile, feature }); } continue; }
+      for (const s of bits) { const [f, b, v] = parseBit(s); if (v) setBit(frames, fw, f, b, 1); else clears.push([f, b]); }
+      continue;
+    }
     const t = tileOf(tile, db);
     const base = t && tileBase(t, db);
     const type = t && db.types[t.type];
@@ -134,8 +160,10 @@ export function frameData(design, db, device = XC3S250E) {
       continue;
     }
     for (const s of bits) {
-      const [df, dbit, v] = parseBit(s);
-      if (v) setBit(frames, fw, base.frame + df, base.bit + dbit, 1); else clears.push([base.frame + df, base.bit + dbit]);
+      const [df, dbit, v, dx, dy] = parseBit(s);
+      const b = dx || dy ? tileBase({ ...t, x: t.x + dx, y: t.y + dy }, db) : base;
+      if (!b) continue;
+      if (v) setBit(frames, fw, b.frame + df, b.bit + dbit, 1); else clears.push([b.frame + df, b.bit + dbit]);
     }
   }
   for (const [f, b] of clears) setBit(frames, fw, f, b, 0);

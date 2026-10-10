@@ -16,6 +16,9 @@ const typesOpt = opt('--types', null), K = +opt('--k', '4'), L = +opt('--L', '8'
 const skipFile = opt('--skip', null), radius = +opt('--radius', '3');
 // --pins all: also the flip-flop outputs (XQ, YQ) as sources and BX, BY, CE, SR as sinks
 const allPins = opt('--pins', 'lut') === 'all';
+// --want file.json: { TYPE: ['from->to', …] } only these PIPs (e.g. those of designs to reproduce)
+const wantFile = opt('--want', null);
+const want = wantFile ? new Map(Object.entries(JSON.parse(fs.readFileSync(wantFile, 'utf8'))).map(([t, l]) => [t, new Set(l)])) : null;
 let seed = +opt('--seed', '1');
 const [xdlrc, out] = args;
 const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x80000000; };
@@ -86,9 +89,11 @@ const tiles = shuffle([...g.tiles.keys()].filter(t => !wantTypes || wantTypes.ha
 for (const t of tiles) {
   const type = g.tiles[t].type;
   const doneT = done.get(type) || new Set();
-  const cands = shuffle(g.pipsOf(t).filter(i => !g.rt[i]));
+  const wanted = want && want.get(type);
+  if (want && !wanted) continue;
+  const cands = shuffle(g.pipsOf(t).filter(i => !g.rt[i] && (!wanted || wanted.has(`${g.names[g.pipA[i]]}->${g.names[g.pipB[i]]}`))));
   const fresh = cands.filter(i => !doneT.has(`${g.names[g.pipA[i]]}->${g.names[g.pipB[i]]}`));
-  const list = fresh.length ? fresh.concat(cands.filter(i => !fresh.includes(i))) : cands;
+  const list = wanted ? fresh : fresh.length ? fresh.concat(cands.filter(i => !fresh.includes(i))) : cands;
   let k = 0;
   for (const i of list) {
     if (k >= K) break;

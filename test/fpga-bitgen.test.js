@@ -10,14 +10,15 @@ import { XC3S250E, readBit, getBit, diffFrames } from '../core/fpga/bitstream.js
 const FW = XC3S250E.frameWords;
 // a database for two tiles: CLB_X1Y1 (frames 10-28, bits 100-163) and BIOIS_X1Y0
 const tiny = () => makeDb({
-  layout: { frameWords: 73, frames: 578, brkRows: [9], cols: { 1: 10 }, rows: { 1: 100, 0: 2256 }, defaults: [[3, 37]] },
+  layout: { frameWords: 73, frames: 578, brkRows: [9], cols: { 1: 10, 2: 40 }, rows: { 1: 100, 0: 2256 }, defaults: [[3, 37]] },
   lut: { colFrame: { 0: 10, 1: 13 }, rowBit: { 0: 148, 1: 116 } },
   tiles: {
     pads: { P11: ['BIOIS_X1Y0', 2] },
+    padFeatures: { P11: { 'I:LVCMOS33': ['500,2300'] } },
     types: {
       CENTER_SMALL: { features: { 'X0->OMUX0': ['6,28'], 'OMUX0->E2BEG0': ['7,1', '!8,2'], 'BX1->BY3': ['10,31'], 'BY3->BX1': [], 'SLICE2:CLKINV:CLK_B': ['5,26'], 'SLICE2:USED': [] } },
       CENTER_SMALL_BRK: { sameAs: 'CENTER_SMALL', features: { 'X0->OMUX0': ['6,29'] } },
-      BIOIS: { features: { 'IOB2:IOATTRBOX:LVCMOS33': ['3,69'] } },
+      BIOIS: { features: { 'IOB2:IOATTRBOX:LVCMOS33': ['3,69', '5,70@1,0'] } },
     },
   },
 });
@@ -86,11 +87,14 @@ test('frame data: defaults, features at tile offsets, LUTs stored inverted, unkn
   assert.equal(getBit(frames, FW, 17, 101), 1);            // OMUX0->E2BEG0 7,1 (and 8,2 cleared)
   assert.equal(getBit(frames, FW, 15, 126), 1);            // CLKINV:CLK_B 5,26
   assert.equal(getBit(frames, FW, 13, 2256 + 69), 1);      // IOB2 LVCMOS33 at the I/O tile
+  assert.equal(getBit(frames, FW, 45, 2256 + 70), 1);      // and in the column of the tile at x + 1
   // LUT F of SLICE_X1Y0: frame 13 from bit 148, address order, inverted (D=A1: even addresses 1)
   for (let a = 0; a < 16; a++) assert.equal(getBit(frames, FW, 13, 148 + a), a & 1 ? 0 : 1);
   // LUT G (unused): the 16 bits before, all 1
   for (let a = 0; a < 16; a++) assert.equal(getBit(frames, FW, 13, 132 + a), 1);
-  assert.deepEqual(unknown.map(u => u.feature).sort(), ['IOB2:PULL:PULLUP', 'IOB2:USED', 'SLICE2:F:#LUT', 'SLICE2:XORF:'].sort());
+  assert.deepEqual(unknown.map(u => u.feature).sort(), ['IOB2:PULL:PULLUP', 'IOB2:USED', 'SLICE2:F:#LUT', 'SLICE2:FXMUX:#OFF', 'SLICE2:XORF:'].sort());
+  // the pad's own setting (absolute bits)
+  assert.equal(getBit(frames, FW, 500, 2300), 1);
 });
 
 test('bitgen: a complete .bit file whose frame data is the design', () => {

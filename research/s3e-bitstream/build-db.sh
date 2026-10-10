@@ -16,7 +16,7 @@ node gen-slicedb.mjs "$W"/slice/*.json > "$W/slice-features.json"
 echo '{"types":{"CENTER_SMALL_BRK":{"sameAs":"CENTER_SMALL"}}}' > "$W/brk.json"
 node gen-pads.mjs "$W/dev-full.xdlrc" > "$W/pads.json"
 PIPS=()
-for d in p1 c1 c2 c3 c4 k1 iop/O iop/I; do
+for d in p1 c1 c2 c3 c4 c5 k1 iop/O iop/I; do
   [ -f "$W/$d/key.json" ] && [ -f "$W/$d/BASE.bit" ] && [ "$(ls "$W/$d" | grep -c "^V.*bit$")" = "$(node -p "require(\"$W/$d/key.json\").L")" ] || continue
   [ -f "$W/$d/pips.json" ] || node ana-pipdrop.mjs "$W/$d" "$W/dev-full.xdlrc" > "$W/$d/pips.json"
   PIPS+=("$W/$d/pips.json")

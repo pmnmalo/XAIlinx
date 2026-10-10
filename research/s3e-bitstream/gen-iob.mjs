@@ -4,7 +4,9 @@
 // With --sparse: designs that use only the pads with one index (0-2) in every other I/O tile (an I/O
 // tile also sets bits in the column before its own), in LVCMOS33 and LVCMOS25, for the residual
 // analysis of the settings themselves (ana-residual.mjs).
-//   node gen-iob.mjs dev-full.xdlrc outdir [--sparse]
+// With --third: every third I/O tile along each side, all its pads (the bits near a used tile are
+// its own).
+//   node gen-iob.mjs dev-full.xdlrc outdir [--sparse | --third]
 import fs from 'node:fs';
 import { loadGraph } from './xdlrc-graph.mjs';
 import { makeRouter } from './router.mjs';
@@ -78,6 +80,18 @@ const write = (name, r, changes, keep = () => true) => {
   fs.writeFileSync(`${out}/${name}.xdl`, txt.join('\n') + '\n');
 };
 const ro = route('out'), ri = route('in');
+if (mode === '--third') {
+  // every third I/O tile along each side, all its pads: the bits near a used tile are its own
+  const phase = p => { const m = /X(\d+)Y(\d+)$/.exec(p.tile); return (/^[LR]/.test(p.tile) ? +m[2] : +m[1]) % 3; };
+  let n = 0;
+  for (const [m, r] of [['O', ro], ['I', ri]]) for (const ph of [0, 1, 2]) for (const std of ['LVCMOS33', 'LVCMOS25']) {
+    const changes = new Map(pads.map(p => [p.site, { IOATTRBOX: std }]));
+    write(`${m}_T${ph}_${std}`, r, changes, p => phase(p) === ph);
+    n++;
+  }
+  console.log(`${n} designs`);
+  process.exit(0);
+}
 if (mode === '--sparse') {
   const parity = p => { const m = /X(\d+)Y(\d+)$/.exec(p.tile); return (+m[1] + +m[2]) & 1; };
   let n = 0;
