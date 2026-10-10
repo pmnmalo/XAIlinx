@@ -91,7 +91,8 @@ export function parseXdl(text) {
       const how = word();
       if (how === 'placed') { inst.placed = true; inst.tile = word(); inst.site = word(); }
       while (i < t.length && t[i].p !== ';') {
-        if (t[i].w === 'cfg') { i++; inst.cfg = parseCfg(str()); inst.cfgRaw = raw(); } else if (t[i].w === 'module') { i++; inst.module = str(); } else i++;
+        // a configuration string is parsed with its escapes ('\\:' in names) except the quotes'
+        if (t[i].w === 'cfg') { i++; str(); inst.cfgRaw = raw(); inst.cfg = parseCfg(inst.cfgRaw.replace(/\\"/g, '"')); } else if (t[i].w === 'module') { i++; inst.module = str(); } else i++;
       }
       i++;
       out.insts.push(inst);

@@ -1,403 +1,384 @@
 {
  "device": "xc3s250e-4-cp132",
- "measured_on": "SLICE_X31Y47 (SLICEL, odd X, odd Y), LUT F at frame 236 bit 736",
- "source": "research/s3e-bitstream: gen-harness.mjs (harness routed by ISE par -p) + gen-hvar.mjs + analyze-slice.mjs; ISE 14.7 xdl/bitgen; 2026-10-10",
- "note": "Positions relative to the LUT F of the slice: frame offset (df) and bit offset (db). Values are the bit values in the bitstream. Not yet checked on SLICEM / even-X / even-Y slices.",
- "settings": {
-  "CLKINV": {
-   "bits": [
-    [
-     2,
-     0
-    ]
-   ],
-   "values": {
-    "CLK": [
-     0
-    ],
-    "CLK_B": [
-     1
-    ]
-   }
-  },
-  "CEINV": {
-   "bits": [
-    [
-     2,
-     -16
-    ]
-   ],
-   "values": {
-    "CE": [
-     1
-    ],
-    "CE_B": [
-     0
-    ]
-   }
-  },
-  "SRINV": {
-   "bits": [
-    [
-     2,
-     34
-    ]
-   ],
-   "values": {
-    "SR": [
-     1
-    ],
-    "SR_B": [
-     0
-    ]
-   }
-  },
-  "BXINV": {
-   "bits": [
-    [
-     2,
-     11
-    ]
-   ],
-   "values": {
-    "BX": [
-     0
-    ],
-    "BX_B": [
-     1
-    ]
-   }
-  },
-  "BYINV": {
-   "bits": [
-    [
-     2,
-     -2
-    ]
-   ],
-   "values": {
-    "BY": [
-     0
-    ],
-    "BY_B": [
-     1
-    ]
-   }
-  },
-  "FFX_INIT_ATTR": {
-   "bits": [
-    [
-     -1,
-     -3
-    ]
-   ],
-   "values": {
-    "INIT0": [
-     1
-    ],
-    "INIT1": [
-     0
-    ]
-   }
-  },
-  "FFY_INIT_ATTR": {
-   "bits": [
-    [
-     -1,
-     -6
-    ]
-   ],
-   "values": {
-    "INIT0": [
-     1
-    ],
-    "INIT1": [
-     0
-    ]
-   }
-  },
-  "FFX_SR_ATTR": {
-   "bits": [
-    [
-     -1,
-     1
-    ]
-   ],
-   "values": {
-    "SRLOW": [
-     1
-    ],
-    "SRHIGH": [
-     0
-    ]
-   }
-  },
-  "FFY_SR_ATTR": {
-   "bits": [
-    [
-     -1,
-     -9
-    ]
-   ],
-   "values": {
-    "SRLOW": [
-     1
-    ],
-    "SRHIGH": [
-     0
-    ]
-   }
-  },
-  "SYNC_ATTR": {
-   "bits": [
-    [
-     -1,
-     -4
-    ]
-   ],
-   "values": {
-    "ASYNC": [
-     0
-    ],
-    "SYNC": [
-     1
-    ]
-   }
-  },
-  "FF_LATCH": {
-   "bits": [
-    [
-     -1,
-     -7
-    ]
-   ],
-   "values": {
-    "FF": [
-     0
-    ],
-    "LATCH": [
-     1
-    ]
-   },
-   "note": "FFX and FFY together"
-  },
-  "DXMUX": {
-   "bits": [
-    [
-     -1,
-     4
-    ]
-   ],
-   "values": {
-    "0": [
-     0
-    ],
-    "1": [
-     1
-    ]
-   }
-  },
-  "DYMUX": {
-   "bits": [
-    [
-     -1,
-     -12
-    ]
-   ],
-   "values": {
-    "0": [
-     0
-    ],
-    "1": [
-     1
-    ]
-   }
-  },
-  "FXMUX": {
-   "bits": [
-    [
-     -1,
-     13
-    ],
-    [
-     -1,
-     -1
-    ]
-   ],
-   "values": {
-    "F": [
-     0,
-     0
-    ],
-    "F5": [
-     1,
-     0
-    ],
-    "FXOR": [
-     1,
-     1
-    ]
-   }
-  },
-  "GYMUX": {
-   "bits": [
-    [
-     -1,
-     -10
-    ],
-    [
-     -1,
-     -13
-    ]
-   ],
-   "values": {
-    "G": [
-     0,
-     0
-    ],
-    "FX": [
-     1,
-     0
-    ],
-    "GXOR": [
-     1,
-     1
-    ]
-   }
-  },
-  "CYSELF": {
-   "bits": [
-    [
-     -1,
-     15
-    ]
-   ],
-   "values": {
-    "1": [
-     0
-    ],
-    "F": [
-     1
-    ]
-   }
-  },
-  "CYSELG": {
-   "bits": [
-    [
-     -1,
-     12
-    ]
-   ],
-   "values": {
-    "1": [
-     0
-    ],
-    "G": [
-     1
-    ]
-   }
-  },
-  "CY0F": {
-   "bits": [
-    [
-     -1,
-     5
-    ],
-    [
-     -1,
-     6
-    ],
-    [
-     -1,
-     8
-    ]
-   ],
-   "values": {
-    "0": [
-     1,
-     1,
-     1
-    ],
-    "1": [
-     1,
-     1,
-     0
-    ],
-    "BX": [
-     0,
-     0,
-     0
-    ],
-    "F1": [
-     0,
-     1,
-     1
-    ],
-    "F2": [
-     0,
-     1,
-     0
-    ],
-    "PROD": [
-     1,
-     0,
-     0
-    ]
-   }
-  },
-  "CY0G": {
-   "bits": [
-    [
-     -1,
-     -16
-    ],
-    [
-     -1,
-     -15
-    ],
-    [
-     -1,
-     -14
-    ]
-   ],
-   "values": {
-    "0": [
-     1,
-     1,
-     1
-    ],
-    "1": [
-     0,
-     1,
-     1
-    ],
-    "BY": [
-     0,
-     0,
-     0
-    ],
-    "G1": [
-     1,
-     0,
-     1
-    ],
-    "G2": [
-     0,
-     0,
-     1
-    ],
-    "PROD": [
-     0,
-     1,
-     0
-    ]
-   }
-  }
+ "source": "research/s3e-bitstream (see README.md): slice settings from the harnesses (gen-harness.mjs, gen-hvar.mjs, gen-slicedb.mjs), routing switches from gen-pipdrop.mjs / gen-pipcover.mjs + ana-pipdrop.mjs, other settings from ana-residual.mjs; ISE 14.7 xdl P.20131013 + bitgen; 2026-10-10",
+ "note": "Slice SLICE_X<x>Y<y> is in tile CLB_X<floor(x/2)+1>Y<floor(y/2)+1> at position i = 2 * (x odd) + (y odd) (0, 1: SLICEM; 2, 3: SLICEL). A setting \"<ATTR>:<VALUE>\" sets the bits \"df,db\" (frame cols[X] + df of the tile column, bit rows[Y] + db of the tile row, db/xc3s250e-layout.json; \"!\" = cleared). <ATTR>:#OFF entries apply when the setting is absent (FXMUX / GYMUX: a used LUT whose X / Y path is unused; CEINV: flip-flops without a clock enable). USED: every used slice. LUT contents: db/xc3s250e-lut.json.",
+ "cols": {
+  "0": 3,
+  "1": 24,
+  "2": 43,
+  "3": 539,
+  "4": 387,
+  "5": 406,
+  "6": 425,
+  "7": 62,
+  "8": 81,
+  "9": 100,
+  "10": 119,
+  "11": 138,
+  "12": 157,
+  "13": 176,
+  "14": 195,
+  "15": 214,
+  "16": 233,
+  "17": 252,
+  "18": 271,
+  "19": 290,
+  "20": 309,
+  "21": 558,
+  "22": 463,
+  "23": 482,
+  "24": 501,
+  "25": 328,
+  "26": 347,
+  "27": 366
  },
- "todo": [
-  "CYINIT (BX / CIN)",
-  "XUSED / YUSED",
-  "SLICEM, even X and even Y slices",
-  "SLICEM LUT RAM / shift-register modes"
- ]
+ "rows": {
+  "0": 2256,
+  "1": 2192,
+  "2": 2128,
+  "3": 2064,
+  "4": 2000,
+  "5": 1936,
+  "6": 1872,
+  "7": 1808,
+  "8": 1744,
+  "9": 1680,
+  "10": 1616,
+  "11": 1552,
+  "12": 1488,
+  "13": 1424,
+  "14": 1360,
+  "15": 1296,
+  "16": 1232,
+  "17": 1168,
+  "18": 1104,
+  "19": 1040,
+  "20": 976,
+  "21": 912,
+  "22": 848,
+  "23": 784,
+  "24": 720,
+  "25": 656,
+  "26": 592,
+  "27": 528,
+  "28": 464,
+  "29": 400,
+  "30": 336,
+  "31": 272,
+  "32": 208,
+  "33": 144,
+  "34": 80,
+  "35": 0
+ },
+ "positions": {
+  "SLICE0": {
+   "_GND_SOURCE:X": [],
+   "BXINV:BX": [],
+   "BXINV:BX_B": ["5,49"],
+   "BYINV:BY": [],
+   "BYINV:BY_B": ["5,36"],
+   "C1VDD:": [],
+   "CEINV:#OFF": ["5,7"],
+   "CEINV:CE": ["5,7"],
+   "CEINV:CE_B": [],
+   "CLKINV:CLK": [],
+   "CLKINV:CLK_B": ["5,37"],
+   "COUTUSED:0": [],
+   "CY0F:0": ["1,53", "1,54", "1,56"],
+   "CY0F:1": ["1,53", "1,54"],
+   "CY0F:BX": [],
+   "CY0F:F1": ["1,54", "1,56"],
+   "CY0F:F2": ["1,54"],
+   "CY0F:PROD": ["1,53"],
+   "CY0G:0": ["1,32", "1,33", "1,34"],
+   "CY0G:1": ["1,33", "1,34"],
+   "CY0G:BY": [],
+   "CY0G:G1": ["1,32", "1,34"],
+   "CY0G:G2": ["1,34"],
+   "CY0G:PROD": ["1,33"],
+   "CYINIT:BX": [],
+   "CYINIT:CIN": ["1,59"],
+   "CYMUXF:": [],
+   "CYMUXG:": [],
+   "CYSELF:1": [],
+   "CYSELF:F": ["1,63"],
+   "CYSELG:1": [],
+   "CYSELG:G": ["1,60"],
+   "DXMUX:0": [],
+   "DXMUX:1": ["1,52"],
+   "DYMUX:0": [],
+   "DYMUX:1": ["1,36"],
+   "F:#LUT": [],
+   "F5MUX:": [],
+   "F5USED:0": [],
+   "F6MUX:": [],
+   "FFX_INIT_ATTR:INIT0": ["1,45"],
+   "FFX_INIT_ATTR:INIT1": [],
+   "FFX_SR_ATTR:SRHIGH": [],
+   "FFX_SR_ATTR:SRLOW": ["1,49"],
+   "FFX:#FF": [],
+   "FFX:#LATCH": ["1,41"],
+   "FFY_INIT_ATTR:INIT0": ["1,42"],
+   "FFY_INIT_ATTR:INIT1": [],
+   "FFY_SR_ATTR:SRHIGH": [],
+   "FFY_SR_ATTR:SRLOW": ["1,39"],
+   "FFY:#FF": [],
+   "FFY:#LATCH": ["1,41"],
+   "FXMUX:#OFF": ["1,47", "1,61"],
+   "FXMUX:F": [],
+   "FXMUX:F5": ["1,61"],
+   "FXMUX:FXOR": ["1,47", "1,61"],
+   "FXUSED:0": [],
+   "G:#LUT": [],
+   "GNDF:": [],
+   "GNDG:": [],
+   "GYMUX:#OFF": ["1,35", "1,38"],
+   "GYMUX:FX": ["1,38"],
+   "GYMUX:G": [],
+   "GYMUX:GXOR": ["1,35", "1,38"],
+   "SRINV:SR": ["5,57"],
+   "SRINV:SR_B": [],
+   "SYNC_ATTR:ASYNC": [],
+   "SYNC_ATTR:SYNC": ["1,44"],
+   "USED": ["1,50", "1,51"],
+   "VDDF:": [],
+   "VDDG:": [],
+   "XORF:": [],
+   "XORG:": [],
+   "XUSED:0": [],
+   "YUSED:0": []
+  },
+  "SLICE1": {
+   "_GND_SOURCE:Y": ["1,23", "1,25"],
+   "BXINV:BX": [],
+   "BXINV:BX_B": ["5,31"],
+   "BYINV:BY": [],
+   "BYINV:BY_B": ["5,28"],
+   "C1VDD:": [],
+   "CEINV:#OFF": ["5,13"],
+   "CEINV:CE": ["5,13"],
+   "CEINV:CE_B": [],
+   "CLKINV:CLK": [],
+   "CLKINV:CLK_B": ["5,47"],
+   "COUTUSED:0": [],
+   "CY0F:0": ["1,21", "1,22", "1,24"],
+   "CY0F:1": ["1,21", "1,22"],
+   "CY0F:BX": [],
+   "CY0F:F1": ["1,22", "1,24"],
+   "CY0F:F2": ["1,22"],
+   "CY0F:PROD": ["1,21"],
+   "CY0G:0": ["1,0", "1,1", "1,2"],
+   "CY0G:1": ["1,1", "1,2"],
+   "CY0G:BY": [],
+   "CY0G:G1": ["1,0", "1,2"],
+   "CY0G:G2": ["1,2"],
+   "CY0G:PROD": ["1,1"],
+   "CYINIT:BX": [],
+   "CYINIT:CIN": ["1,27"],
+   "CYMUXF:": [],
+   "CYMUXG:": [],
+   "CYSELF:1": [],
+   "CYSELF:F": ["1,31"],
+   "CYSELG:1": [],
+   "CYSELG:G": ["1,28"],
+   "DXMUX:0": [],
+   "DXMUX:1": ["1,20"],
+   "DYMUX:0": [],
+   "DYMUX:1": ["1,4"],
+   "F:#LUT": [],
+   "F5MUX:": [],
+   "F5USED:0": [],
+   "F6MUX:": [],
+   "FFX_INIT_ATTR:INIT0": ["1,13"],
+   "FFX_INIT_ATTR:INIT1": [],
+   "FFX_SR_ATTR:SRHIGH": [],
+   "FFX_SR_ATTR:SRLOW": ["1,17"],
+   "FFX:#FF": [],
+   "FFX:#LATCH": ["1,9"],
+   "FFY_INIT_ATTR:INIT0": ["1,10"],
+   "FFY_INIT_ATTR:INIT1": [],
+   "FFY_SR_ATTR:SRHIGH": [],
+   "FFY_SR_ATTR:SRLOW": ["1,7"],
+   "FFY:#FF": [],
+   "FFY:#LATCH": ["1,9"],
+   "FXMUX:#OFF": ["1,15", "1,29"],
+   "FXMUX:F": [],
+   "FXMUX:F5": ["1,29"],
+   "FXMUX:FXOR": ["1,15", "1,29"],
+   "FXUSED:0": [],
+   "G:#LUT": [],
+   "GNDF:": [],
+   "GNDG:": [],
+   "GYMUX:#OFF": ["1,3", "1,6"],
+   "GYMUX:FX": ["1,6"],
+   "GYMUX:G": [],
+   "GYMUX:GXOR": ["1,3", "1,6"],
+   "SRINV:SR": ["5,63"],
+   "SRINV:SR_B": [],
+   "SYNC_ATTR:ASYNC": [],
+   "SYNC_ATTR:SYNC": ["1,12"],
+   "USED": ["1,18", "1,19"],
+   "VDDF:": [],
+   "VDDG:": [],
+   "XORF:": [],
+   "XORG:": [],
+   "XUSED:0": [],
+   "YUSED:0": []
+  },
+  "SLICE2": {
+   "_GND_SOURCE:X": [],
+   "_GND_SOURCE:Y": [],
+   "BXINV:BX": [],
+   "BXINV:BX_B": ["5,35"],
+   "BYINV:BY": [],
+   "BYINV:BY_B": ["5,32"],
+   "C1VDD:": [],
+   "CEINV:#OFF": ["5,6"],
+   "CEINV:CE": ["5,6"],
+   "CEINV:CE_B": [],
+   "CLKINV:CLK": [],
+   "CLKINV:CLK_B": ["5,26"],
+   "COUTUSED:0": [],
+   "CY0F:0": ["2,53", "2,54", "2,56"],
+   "CY0F:1": ["2,53", "2,54"],
+   "CY0F:BX": [],
+   "CY0F:F1": ["2,54", "2,56"],
+   "CY0F:F2": ["2,54"],
+   "CY0F:PROD": ["2,53"],
+   "CY0G:0": ["2,32", "2,33", "2,34"],
+   "CY0G:1": ["2,33", "2,34"],
+   "CY0G:BY": [],
+   "CY0G:G1": ["2,32", "2,34"],
+   "CY0G:G2": ["2,34"],
+   "CY0G:PROD": ["2,33"],
+   "CYINIT:BX": [],
+   "CYINIT:CIN": ["2,59"],
+   "CYMUXF:": [],
+   "CYMUXG:": [],
+   "CYSELF:1": [],
+   "CYSELF:F": ["2,63"],
+   "CYSELG:1": [],
+   "CYSELG:G": ["2,60"],
+   "DXMUX:0": [],
+   "DXMUX:1": ["2,52"],
+   "DYMUX:0": [],
+   "DYMUX:1": ["2,36"],
+   "F:#LUT": [],
+   "F5MUX:": [],
+   "F5USED:0": [],
+   "F6MUX:": [],
+   "FFX_INIT_ATTR:INIT0": ["2,45"],
+   "FFX_INIT_ATTR:INIT1": [],
+   "FFX_SR_ATTR:SRHIGH": [],
+   "FFX_SR_ATTR:SRLOW": ["2,49"],
+   "FFX:#FF": [],
+   "FFX:#LATCH": ["2,41"],
+   "FFY_INIT_ATTR:INIT0": ["2,42"],
+   "FFY_INIT_ATTR:INIT1": [],
+   "FFY_SR_ATTR:SRHIGH": [],
+   "FFY_SR_ATTR:SRLOW": ["2,39"],
+   "FFY:#FF": [],
+   "FFY:#LATCH": ["2,41"],
+   "FXMUX:#OFF": ["2,47", "2,61"],
+   "FXMUX:F": [],
+   "FXMUX:F5": ["2,61"],
+   "FXMUX:FXOR": ["2,47", "2,61"],
+   "FXUSED:0": [],
+   "G:#LUT": [],
+   "GNDF:": [],
+   "GNDG:": [],
+   "GYMUX:#OFF": ["2,35", "2,38"],
+   "GYMUX:FX": ["2,38"],
+   "GYMUX:G": [],
+   "GYMUX:GXOR": ["2,35", "2,38"],
+   "SRINV:SR": ["5,56"],
+   "SRINV:SR_B": [],
+   "SYNC_ATTR:ASYNC": [],
+   "SYNC_ATTR:SYNC": ["2,44"],
+   "USED": [],
+   "VDDF:": [],
+   "VDDG:": [],
+   "XORF:": [],
+   "XORG:": [],
+   "XUSED:0": [],
+   "YUSED:0": []
+  },
+  "SLICE3": {
+   "_GND_SOURCE:X": [],
+   "_GND_SOURCE:Y": [],
+   "BXINV:BX": [],
+   "BXINV:BX_B": ["5,27"],
+   "BYINV:BY": [],
+   "BYINV:BY_B": ["5,14"],
+   "C1VDD:": [],
+   "CEINV:#OFF": ["5,0"],
+   "CEINV:CE": ["5,0"],
+   "CEINV:CE_B": [],
+   "CLKINV:CLK": [],
+   "CLKINV:CLK_B": ["5,16"],
+   "COUTUSED:0": [],
+   "CY0F:0": ["2,21", "2,22", "2,24"],
+   "CY0F:1": ["2,21", "2,22"],
+   "CY0F:BX": [],
+   "CY0F:F1": ["2,22", "2,24"],
+   "CY0F:F2": ["2,22"],
+   "CY0F:PROD": ["2,21"],
+   "CY0G:0": ["2,0", "2,1", "2,2"],
+   "CY0G:1": ["2,1", "2,2"],
+   "CY0G:BY": [],
+   "CY0G:G1": ["2,0", "2,2"],
+   "CY0G:G2": ["2,2"],
+   "CY0G:PROD": ["2,1"],
+   "CYINIT:BX": [],
+   "CYINIT:CIN": ["2,27"],
+   "CYMUXF:": [],
+   "CYMUXG:": [],
+   "CYSELF:1": [],
+   "CYSELF:F": ["2,31"],
+   "CYSELG:1": [],
+   "CYSELG:G": ["2,28"],
+   "DXMUX:0": [],
+   "DXMUX:1": ["2,20"],
+   "DYMUX:0": [],
+   "DYMUX:1": ["2,4"],
+   "F:#LUT": [],
+   "F5MUX:": [],
+   "F5USED:0": [],
+   "F6MUX:": [],
+   "FFX_INIT_ATTR:INIT0": ["2,13"],
+   "FFX_INIT_ATTR:INIT1": [],
+   "FFX_SR_ATTR:SRHIGH": [],
+   "FFX_SR_ATTR:SRLOW": ["2,17"],
+   "FFX:#FF": [],
+   "FFX:#LATCH": ["2,9"],
+   "FFY_INIT_ATTR:INIT0": ["2,10"],
+   "FFY_INIT_ATTR:INIT1": [],
+   "FFY_SR_ATTR:SRHIGH": [],
+   "FFY_SR_ATTR:SRLOW": ["2,7"],
+   "FFY:#FF": [],
+   "FFY:#LATCH": ["2,9"],
+   "FXMUX:#OFF": ["2,15", "2,29"],
+   "FXMUX:F": [],
+   "FXMUX:F5": ["2,29"],
+   "FXMUX:FXOR": ["2,15", "2,29"],
+   "G:#LUT": [],
+   "GNDF:": [],
+   "GNDG:": [],
+   "GYMUX:#OFF": ["2,3", "2,6"],
+   "GYMUX:FX": ["2,6"],
+   "GYMUX:G": [],
+   "GYMUX:GXOR": ["2,3", "2,6"],
+   "SRINV:SR": ["5,50"],
+   "SRINV:SR_B": [],
+   "SYNC_ATTR:ASYNC": [],
+   "SYNC_ATTR:SYNC": ["2,12"],
+   "USED": [],
+   "VDDF:": [],
+   "VDDG:": [],
+   "XORF:": [],
+   "XORG:": [],
+   "XUSED:0": [],
+   "YUSED:0": []
+  }
+ }
 }

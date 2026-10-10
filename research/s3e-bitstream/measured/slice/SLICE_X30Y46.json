@@ -1,0 +1,174 @@
+{
+ "site": "SLICE_X30Y46",
+ "lutF": {
+  "frame": 233,
+  "bit": 768
+ },
+ "rows": [
+  {
+   "variant": "BXINV_B",
+   "bits": 1,
+   "where": "f+5:b+1=1"
+  },
+  {
+   "variant": "BYINV_B",
+   "bits": 1,
+   "where": "f+5:b-12=1"
+  },
+  {
+   "variant": "CEINV_B",
+   "bits": 1,
+   "where": "f+5:b-41=0"
+  },
+  {
+   "variant": "CLKINV_B",
+   "bits": 1,
+   "where": "f+5:b-11=1"
+  },
+  {
+   "variant": "CY0F_0",
+   "bits": 4,
+   "where": "f+1:b+4=0 f+1:b+5=1 f+1:b+6=1 f+1:b+8=1"
+  },
+  {
+   "variant": "CY0F_1",
+   "bits": 3,
+   "where": "f+1:b+4=0 f+1:b+5=1 f+1:b+6=1"
+  },
+  {
+   "variant": "CY0F_F1",
+   "bits": 3,
+   "where": "f+1:b+4=0 f+1:b+6=1 f+1:b+8=1"
+  },
+  {
+   "variant": "CY0F_F2",
+   "bits": 2,
+   "where": "f+1:b+4=0 f+1:b+6=1"
+  },
+  {
+   "variant": "CY0F_PROD",
+   "bits": 2,
+   "where": "f+1:b+4=0 f+1:b+5=1"
+  },
+  {
+   "variant": "CY0G_0",
+   "bits": 4,
+   "where": "f+1:b-16=1 f+1:b-15=1 f+1:b-14=1 f+1:b-12=0"
+  },
+  {
+   "variant": "CY0G_1",
+   "bits": 3,
+   "where": "f+1:b-15=1 f+1:b-14=1 f+1:b-12=0"
+  },
+  {
+   "variant": "CY0G_G1",
+   "bits": 3,
+   "where": "f+1:b-16=1 f+1:b-14=1 f+1:b-12=0"
+  },
+  {
+   "variant": "CY0G_G2",
+   "bits": 2,
+   "where": "f+1:b-14=1 f+1:b-12=0"
+  },
+  {
+   "variant": "CY0G_PROD",
+   "bits": 2,
+   "where": "f+1:b-15=1 f+1:b-12=0"
+  },
+  {
+   "variant": "CYINIT_BX",
+   "bits": 1,
+   "where": "f+1:b+11=0"
+  },
+  {
+   "variant": "CYSELF_1",
+   "bits": 1,
+   "where": "f+1:b+15=0"
+  },
+  {
+   "variant": "CYSELG_1",
+   "bits": 1,
+   "where": "f+1:b+12=0"
+  },
+  {
+   "variant": "DXMUX_0",
+   "bits": 4,
+   "where": "f+1:b+4=0 f+1:b+5=1 f+1:b+6=1 f+1:b+8=1"
+  },
+  {
+   "variant": "DYMUX_0",
+   "bits": 4,
+   "where": "f+1:b-16=1 f+1:b-15=1 f+1:b-14=1 f+1:b-12=0"
+  },
+  {
+   "variant": "FXMUX_F5",
+   "bits": 1,
+   "where": "f+1:b+13=1"
+  },
+  {
+   "variant": "FXMUX_FXOR",
+   "bits": 2,
+   "where": "f+1:b-1=1 f+1:b+13=1"
+  },
+  {
+   "variant": "GYMUX_FX",
+   "bits": 1,
+   "where": "f+1:b-10=1"
+  },
+  {
+   "variant": "GYMUX_GXOR",
+   "bits": 2,
+   "where": "f+1:b-13=1 f+1:b-10=1"
+  },
+  {
+   "variant": "INIT1_X",
+   "bits": 1,
+   "where": "f+1:b-3=0"
+  },
+  {
+   "variant": "INIT1_Y",
+   "bits": 1,
+   "where": "f+1:b-6=0"
+  },
+  {
+   "variant": "LATCH",
+   "bits": 1,
+   "where": "f+1:b-7=1"
+  },
+  {
+   "variant": "NOCIN_CYINIT_CIN",
+   "bits": 1,
+   "where": "f+1:b+11=0"
+  },
+  {
+   "variant": "NO_XUSED",
+   "bits": 5,
+   "where": "f-11:b+62=0 f-11:b+65=0 f-6:b-11=0 f+6:b-11=0 f+6:b-9=0"
+  },
+  {
+   "variant": "NO_YUSED",
+   "bits": 3,
+   "where": "f-9:b+1=0 f-7:b+1=0 f+7:b+10=0"
+  },
+  {
+   "variant": "SRHIGH_X",
+   "bits": 1,
+   "where": "f+1:b+1=0"
+  },
+  {
+   "variant": "SRHIGH_Y",
+   "bits": 1,
+   "where": "f+1:b-9=0"
+  },
+  {
+   "variant": "SRINV_B",
+   "bits": 1,
+   "where": "f+5:b+9=0"
+  },
+  {
+   "variant": "SYNC",
+   "bits": 1,
+   "where": "f+1:b-4=1"
+  }
+ ]
+}
