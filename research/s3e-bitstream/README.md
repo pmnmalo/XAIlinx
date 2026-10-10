@@ -39,6 +39,8 @@ reference design implemented by ISE (`top.xdl`, `top.bit`, from `top.v` / `top.u
 | `gen-attrdrop.mjs`, `ana-attrdrop.mjs`, `gen-slicedb.mjs`, `gen-slicetable.mjs` | Stage C: slice settings in every slice position |
 | `ana-residual.mjs`, `explain-diff.mjs` | What the database does not explain in designs implemented by ISE, per tile and feature |
 | `gen-layout.mjs`, `gen-pads.mjs`, `merge-db.mjs`, `build-db.sh`, `db.mjs` | Build the database (`db/*.json`) from the experiments' results |
+| `measured/` | Results of the analyses that `build-db.sh` merges (slice harnesses, learned and corrected features: our own observations, no Xilinx files) |
+| `learn-single.mjs`, `unify-io.mjs` | Features measured in the reference designs; shared switch boxes of the I/O tile types |
 | `check-writer.mjs` | Acceptance test of the writer (`core/fpga/bitgen.js`): byte comparison with ISE's bitgen |
 | `db/xc3s250e-layout.json`, `db/xc3s250e-tiles.json` | Result of stage C: where every tile is in the frame data; the bits of every measured feature (PIPs, site settings, pads) per tile type |
 
@@ -132,6 +134,92 @@ settings (initial value, set or reset, synchronous, latch), the D-input and outp
 and the carry-chain settings (CYSEL, CY0 with a 3-bit code) are in the frame before. Still to do:
 CYINIT, the X / Y outputs, and checking the same layout on SLICEM and on the lower slice of a CLB.
 
+### Stage C: the bit database and the bitstream writer (2026-10-10)
+
+**Result: Silinx's writer (`core/fpga/bitgen.js`) turns ISE's routed XDL of the switch -> LED
+design, blinky and lab11 into `.bit` files byte-identical to the ones ISE's bitgen writes from the
+same XDL, with `-g CRC:Disable` and with the default CRC** (`check-writer.mjs`).
+
+**Packets and CRC.** The packet sequence is fixed (`core/fpga/bitstream.js`): sync, CMD RCRC, FLR
+72, COR, IDCODE, MASK, CMD SWITCH, FAR 0, CMD WCFG, one Type 2 FDRI write of all 578 frames,
+the CRC check word, CMD GRESTORE, CMD LFRM, one frame of NOOPs, CMD START, CTL 0, CRC, CMD
+DESYNC, 4 NOOPs. COR = `000031E5` (+ `20000000` with the CRC off, + `00010000` for
+`StartUpClk:JtagClk`). The CRC is a CRC-16 (polynomial 0x8005, bit-reversed 0xA001) fed with the
+32 data bits then the 5 register-address bits of every register write, least significant bit first;
+RCRC and the check word reset it; with the CRC off both check words are `DEFC`.
+
+**Model.** A design is a set of *features*, each of a tile: a routing switch (`from->to`, on nets
+with pins only), a site setting (`SLICE2:CYSELF:F`, `IOB1:…`, `BUFGMUX_X2Y11:…`), a pad's
+direction and I/O standard (`@M5 O:LVCMOS33`), plus the LUT contents (stage A). Every feature sets
+a few bits at fixed offsets from its tile's first frame and bit (`db/xc3s250e-layout.json`:
+`cols[x]`, `rows[y]` by the X / Y of the tile name; the I/O columns are 21 frames at frames 3 and
+366, frames 0-2 hold the centre clock columns). The frame data of an empty design has 18 bits set
+(`defaults`). Features compose by OR (and a few clears), which is what makes batch measurements
+possible.
+
+**Routing switches, in batches.** `gen-pipdrop.mjs`: a design routed by ISE (lab11, the I/O
+designs) with PIPs removed by codewords: each PIP gets w ones out of L variants, different
+codewords in the same tile; a bit that changes in exactly the variants of a codeword belongs to
+that PIP (`xdl -xdl2ncd -force` accepts the broken routes; bitgen still programs the rest of a net
+that has pins). 20 variants measured all 4072 PIPs of lab11 at once. `gen-pipcover.mjs`: test
+designs routed by `router.mjs` (breadth-first search over the device graph of
+`xdl -report -pips -all_conns`): up to 4-10 PIPs under test per tile, in every tile of the chosen
+types at once, each on its own net from a slice output through the PIP to a slice input; 8
+variants per design. `gen-clock.mjs`: 8 global buffers driving clock pins above and below every
+horizontal clock row. A PIP measured in several tiles must have the same bits in all (majority
+kept, conflicts reported by `pips-to-db.mjs`). Coverage: 2570 of the 2840 PIPs of the CLB tile
+(the 50 route-throughs excluded), the switches of the I/O, terminal, block-RAM interconnect, DCM
+and clock tiles that the test designs and the reference designs use: about 7100 PIP features in
+80 tile types. The I/O tiles of one side share their switch box (`unify-io.mjs`).
+
+**Global clock.** The horizontal clock rows (GCLKH) use one bit per line and direction in the I/O
+rows of the frame (bits 3, 2, 2334, 2335 for the rows of CLB Y 29, 21, 13, 5), frames 1-16 of
+the column (`GCLKk -> UPk` / `DNk`); the vertical spines (GCLKVC) need no bits; the centre tiles
+GCLKVML / GCLKVMR / CLKC are frames 0 / 1 / 2. The BUFGMUX settings used here (`I0_USED`,
+`SINV:S_B`, `DISABLE_ATTR:LOW`) set no bits beyond the switches into and out of the buffer.
+
+**Slices** (`db/xc3s250e-slice.json`, any slice: position i = 2 x (X odd) + (Y odd) of the CLB
+tile). The harness results of the four positions (SLICEM / SLICEL, lower / upper), plus rules
+found by comparing whole designs with ISE (`ana-residual.mjs`, `explain-diff.mjs`) and by removing
+one setting per slice position from a routed design (`gen-attrdrop.mjs`): a used slice of a SLICEM
+sets 2 bits (`USED`); an unused LUT of a used slice holds the constant 0; a used LUT whose path to
+the X / Y output and to the flip-flop (DXMUX / DYMUX = 1) is unused sets its output multiplexer to
+all ones (`FXMUX:#OFF`); flip-flops without a clock enable set the enable bit (`CEINV:#OFF`);
+F5USED, FXUSED, F5MUX, F6MUX, XUSED, YUSED and the carry elements set no bits of their own.
+
+**I/O pads.** The pads do not repeat one pattern per tile type: an I/O tile configures its pads
+partly in the frames of the tile next to it. So every bonded pad (92) has its own absolute bits
+per direction and standard (`ana-pads.mjs`), from designs with every third I/O tile used (every
+bit near a used tile is its own) and designs with one pad index in every other tile (which pad
+of the tile). LVCMOS33 and LVCMOS25 inputs set the same bits; outputs differ in one bit. Measured
+for LVCMOS33 / LVCMOS25, DRIVE 12, SLEW SLOW, no pull (what the Basys2 designs use);
+`gen-iob.mjs` also has variants for the other standards, drives, FAST and the pulls (`ana-iob.mjs`,
+not in the database yet: several of them change bits of the neighbouring pads).
+
+**Measured in the reference designs themselves.** 27 PIPs and a few settings were found only in
+the reference designs (a tile with exactly one unknown feature: its differing bits are that
+feature, `learn-single.mjs`), and a few corrections from `explain-diff.mjs` (`fix-*.json` in
+`build-db.sh`): BY -> BX bounce, `_GND_SOURCE`, `YB1->OMUX0` (one observation), `FX1->Y1`
+(clears one bit of the GYMUX default), the clock pins of the CLB_BRK rows (same bits as in the
+other rows). So the acceptance designs are not fully independent of the database. Designs not used to build it
+(other placements of lab11, blinky and the switch -> LED design, routed by ISE): two are
+byte-identical (switch -> LED placed by Silinx, `s4/top`), the others differ in 39-97 bits of
+the 1.35 million (unknown PIPs of block-RAM interconnect, DCM and I/O tiles, the carry chain of
+SLICEMs, and the open SLICEM bits below); lab11 synthesized by Yosys differs in 276 bits.
+
+Open: in a SLICEM of an F6 multiplexer tree, ISE sometimes sets 2 more bits per slice (SLICE0:
+1,55 1,57; SLICE1: 1,23 1,25) and sometimes not, with the same settings in the XDL (they are set
+for a `_GND_SOURCE::Y` SLICEM); the condition is not known yet, the database leaves them out.
+
+**Runtime.** About 185 ISE runs (`xdl -xdl2ncd` + `bitgen`, 3 at a time, about 1 minute each under
+emulation), about 4 hours of wall time in batches; the analyses run in seconds.
+
+**Open problems.** PIPs not reachable by the test router (long lines, TBUF, some I/O switches) and
+the route-throughs; block RAM, multipliers, DCM settings; I/O standards other than LVCMOS33 / 25
+and DRIVE / SLEW / PULL changes; IFF / OFF registers in the IOBs; SLICEM as RAM / shift register;
+BUFGMUX with I1 / S used. A design using one of these reports it (`unknown` features of
+`bitgen()`), the bitstream is then incomplete.
+
 ### Open synthesis on the board (2026-10-10)
 
 lab11 and the blinky example, synthesized by Silinx's own front end (`core/synth-verilog.js`: the
@@ -153,7 +241,7 @@ decoders and ROMs before Yosys. Measure on lab11 and the example designs against
 ## Conclusion
 
 The method works for this device: LUT contents, I/O pads and routing switches can be located by
-comparing bitstreams, and they combine independently into a valid bitstream. The next stages
-(not started) are the frame of every column, the remaining slice settings (multiplexers,
-flip-flops, carry), every routing switch of every tile type, the I/O settings, then a placer, a
-router and the bitstream writer in Silinx.
+comparing bitstreams, and they combine independently into a valid bitstream. Stage C built the
+database for what the Basys2 designs use and a writer whose output is byte-identical to ISE's
+bitgen for the switch -> LED design, blinky and lab11. Next: the open problems of stage C, then
+Silinx's own placer and router feeding the writer.

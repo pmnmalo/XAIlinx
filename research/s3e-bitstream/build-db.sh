@@ -3,7 +3,9 @@
 # (bitstreams made by run-many.sh; nothing of it is in the repository):
 #   $W/dev-full.xdlrc        xdl -report -pips -all_conns xc3s250ecp132-4
 #   $W/empty.bit             an empty design
-#   $W/slice/*.json          slice harness results (analyze-slice.mjs)
+#   measured/slice/*.json    slice harness results (analyze-slice.mjs), in the repository
+#   measured/learn-*, fix-*  features found by ana-residual / ana-attrdrop / ana-pads / learn-single /
+#                            explain-diff (see README), in the repository
 #   $W/{p1,c1,c2,k1,iop/*}/  PIP batches (gen-pipdrop.mjs, gen-pipcover.mjs, gen-clock.mjs)
 #   $W/io1/                  I/O settings (gen-iob.mjs)
 #   $W/ref/                  designs implemented by ISE (routed XDL + .bit) for the residual analysis
@@ -12,7 +14,7 @@ W=${1:-/tmp/claude-501/bg}
 cd "$(dirname "$0")"
 node gen-layout.mjs "$W/empty.bit" > db/xc3s250e-layout.json
 rm -f db/xc3s250e-tiles.json
-node gen-slicedb.mjs "$W"/slice/*.json > "$W/slice-features.json"
+node gen-slicedb.mjs measured/slice/*.json > "$W/slice-features.json"
 echo '{"types":{"CENTER_SMALL_BRK":{"sameAs":"CENTER_SMALL"}}}' > "$W/brk.json"
 node gen-pads.mjs "$W/dev-full.xdlrc" > "$W/pads.json"
 PIPS=()
@@ -24,9 +26,9 @@ done
 node pips-to-db.mjs "${PIPS[@]}" > "$W/pip-features.json" 2> "$W/pip-report.txt"
 tail -1 "$W/pip-report.txt"
 node merge-db.mjs "$W/slice-features.json" "$W/brk.json" "$W/pads.json" "$W/pip-features.json"
-for f in "$W"/learn-*.json; do [ -f "$f" ] && node merge-db.mjs --keep "$f"; done
+for f in measured/learn-*.json; do [ -f "$f" ] && node merge-db.mjs --keep "$f"; done
 node unify-io.mjs
 # corrections found by comparing whole designs with ISE (check-writer.mjs, explain-diff.mjs)
-for f in "$W"/fix-*.json; do [ -f "$f" ] && node merge-db.mjs "$f"; done
+for f in measured/fix-*.json; do [ -f "$f" ] && node merge-db.mjs "$f"; done
 
 node gen-slicetable.mjs > db/xc3s250e-slice.json
