@@ -18,11 +18,17 @@
 export class PlaceError extends Error {}
 
 // ------------------------------------------------------------------ the device
-/** Sites of the device by kind, with positions: slices by (x, y), pads by name, clock buffers. */
+/** Sites of the device by kind, with positions: slices by (x, y), pads by name, clock buffers.
+ *  dev: parseXdlrc() of the device report, or the routing graph (core/fpga/device.js Device). */
 export function deviceSites(dev) {
   const rows = dev.rows;
   const slices = new Map(), pads = new Map(), bufgmux = [];
-  for (const t of dev.tiles) {
+  // the Device keeps the sites per tile as [name, bonded (0 internal, 1 bonded, 2 unbonded)]
+  const tiles = dev.tiles || Array.from(dev.tileNames, (name, k) => ({
+    name, r: dev.tileRow[k], c: dev.tileCol[k],
+    sites: dev.tileSites[k].map(([n, b], i) => ({ name: n, type: dev.templates[dev.tileTemplate[k]].sites[i].type, bonded: b === 1 })),
+  }));
+  for (const t of tiles) {
     for (const s of t.sites) {
       let m;
       // physical position: tile column, tile row counted from the bottom (y grows upward as the

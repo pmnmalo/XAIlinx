@@ -77,6 +77,10 @@ test('PIPs: lookup, the PIPs leaving a node, route-throughs flagged, bidirection
   assert.deepEqual([d.pip(k, b1).from, d.pip(k, b1).dir, d.pip(k, b1).to], ['BX0', '=-', 'BX1']);
   assert.deepEqual([d.pip(k, b0).from, d.pip(k, b0).to], ['BX0', 'BX1']);
   assert.deepEqual(d.pipNodes(k, b1), [d.node(k, 'BX1'), d.node(k, 'BX0')]);
+  // pipWires: the wire names in the direction of the signal (what a bitstream feature names)
+  assert.deepEqual(d.pipWires(k, b1), ['BX1', 'BX0']);
+  assert.deepEqual(d.pipWires(k, b0), ['BX0', 'BX1']);
+  assert.deepEqual(d.pipWires(k, i), ['OMUX1', 'E2BEG1']);
   // the node-level edge arrays: one edge per PIP
   const e = d.routingEdges();
   assert.equal(e.edgeTo.length, d.pipCount);

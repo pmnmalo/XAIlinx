@@ -42,6 +42,11 @@ the "What's new" text of its GitHub release.
   the file is byte-identical to ISE's bitgen (CRC on and off). Designs placed and routed by Silinx
   still use a few routing switches not measured yet. The package's pads come from the device
   description built from the user's own ISE, never from the repository.
+- **Fully open bitstreams** for the Spartan-3E XC3S250E: the router can keep to the routing switches
+  whose bits the database knows, and the packer can bring a carry out through an XOR stage instead
+  of the unmeasured XB / YB pins, so blinky and lab11 go from VHDL / Verilog to a `.bit` file with no
+  Xilinx tool at all (`research/s3e-route/open-flow.mjs`). Checked against ISE: 0 DRC errors and a
+  bitstream byte-identical to ISE's bitgen for the same routed design (8 placements, CRC on and off).
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - How the open toolchain for the Spartan-3E is being developed: `docs/OPEN-TOOLCHAIN.md`, and the
   first experiments in `research/s3e-bitstream`.
