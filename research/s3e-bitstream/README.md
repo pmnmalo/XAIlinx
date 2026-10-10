@@ -29,9 +29,18 @@ reference design implemented by ISE (`top.xdl`, `top.bit`, from `top.v` / `top.u
 | `gen-map.mjs`, `decode-map.mjs` | Stage A: one design with every slice numbered in its LUT F; the frame of every slice column and the bit of every slice row |
 | `gen-slice.mjs`, `analyze-slice.mjs` | Stage B: the settings inside a slice (flip-flops, inverters, multiplexers, carry), one design per setting |
 | `gen-harness.mjs`, `gen-hvar.mjs` | Stage B2: the slice under test with all its pins connected, routed once by ISE; one variant per setting |
-| `db/xc3s250e-slice.json` | Result of stage B: the bits of each slice setting |
+| `db/xc3s250e-slice.json` | Result of stages B and C: the bits of each slice setting, per slice position (any slice) |
 | `compare-sim.mjs` | Does the netlist of open synthesis behave like the design? Simulates both with Silinx |
 | `db/xc3s250e-lut.json` | Result of stage A: where every LUT of the chip is in the bitstream |
+| `xdlrc-graph.mjs`, `router.mjs` | The device's routing graph from `xdl -report -pips -all_conns` (cached), and a small router for test designs |
+| `run-many.sh` | Inside the ISE container: `xdl -xdl2ncd -force` + `bitgen` for every `.xdl` of several folders, 3 at a time (`-c`: also with CRC) |
+| `gen-pipdrop.mjs`, `gen-pipcover.mjs`, `gen-clock.mjs`, `ana-pipdrop.mjs`, `pips-to-db.mjs` | Stage C: routing switches in batches (variants remove PIPs by codewords); a design routed by ISE, designs routed by `router.mjs`, the global clock tree |
+| `gen-iob.mjs`, `ana-pads.mjs`, `ana-iob.mjs`, `ana-io2.mjs` | Stage C: the I/O pads (direction, I/O standard, drive, slew, pull) |
+| `gen-attrdrop.mjs`, `ana-attrdrop.mjs`, `gen-slicedb.mjs`, `gen-slicetable.mjs` | Stage C: slice settings in every slice position |
+| `ana-residual.mjs`, `explain-diff.mjs` | What the database does not explain in designs implemented by ISE, per tile and feature |
+| `gen-layout.mjs`, `gen-pads.mjs`, `merge-db.mjs`, `build-db.sh`, `db.mjs` | Build the database (`db/*.json`) from the experiments' results |
+| `check-writer.mjs` | Acceptance test of the writer (`core/fpga/bitgen.js`): byte comparison with ISE's bitgen |
+| `db/xc3s250e-layout.json`, `db/xc3s250e-tiles.json` | Result of stage C: where every tile is in the frame data; the bits of every measured feature (PIPs, site settings, pads) per tile type |
 
 ## Results
 
