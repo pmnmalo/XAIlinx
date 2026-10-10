@@ -75,6 +75,27 @@ export function lit(v, w = v.w) {
 }
 
 // ------------------------------------------------------------------ the translator
+// The flip-flops and latches of Yosys's Xilinx cell library; the simpler ones of the UNISIM library
+// (FD, FDC, FDE, FDR, FDS, FDP, FDRS, FDCP, LD, LDC, LDE, LDP and the _1 flip-flops) are not in it,
+// so they become the smallest one that has their pins, with the others tied inactive (CE / GE = 1,
+// resets and sets = 0): the same behaviour, and INIT keeps its meaning.
+const YOSYS_FFS = [['FDRE', 'CE R'], ['FDSE', 'CE S'], ['FDCE', 'CE CLR'], ['FDPE', 'CE PRE'], ['FDRSE', 'CE R S'], ['FDCPE', 'CE CLR PRE']];
+const YOSYS_LATCHES = [['LDCE', 'CLR GE'], ['LDPE', 'PRE GE'], ['LDCPE', 'CLR PRE GE']];
+/** The cell Yosys knows for a primitive with these ports: { name, tie: { pin: value } }. */
+export function yosysCell(name, ports) {
+  const m = /^(FD|LD)([A-Z]*)(_1)?$/.exec(name);
+  if (!m) return { name, tie: {} };
+  const latch = m[1] === 'LD', table = latch ? YOSYS_LATCHES : YOSYS_FFS;
+  if (table.some(([n]) => n === `${m[1]}${m[2]}`) && (!m[3] || !latch)) return { name, tie: {} };
+  if (m[3] && latch) return { name, tie: {} };   // no falling-gate latch in Yosys's library (it says so)
+  const pins = ports.filter(p => !['C', 'G', 'D', 'Q'].includes(p));
+  const full = table.map(([n, ps]) => [n, ps.split(' ')]).filter(([, ps]) => pins.every(p => ps.includes(p))).sort((a, b) => a[1].length - b[1].length)[0];
+  if (!full) return { name, tie: {} };
+  const tie = {};
+  for (const p of full[1]) if (!pins.includes(p)) tie[p] = p === 'CE' || p === 'GE' ? "1'b1" : "1'b0";
+  return { name: `${full[0]}${m[3] || ''}`, tie };
+}
+
 export function toVerilog(design, { name } = {}) {
   const top = design.top;
   const warnings = [];
@@ -581,6 +602,13 @@ export function toVerilog(design, { name } = {}) {
       } else if (out) sub.subst.set(p.i, { lv: out, rv: p.dir === 'inout' ? out : null, ctx });
     });
     const body = stmt(f.body, sub, ind, mode, loop);
+    // the procedure's own variables start at their declared values on every call
+    const init0 = f.frameInit ? f.frameInit() : [], params = new Set(f.params.map(p => p.i));
+    for (const [i, l] of sub.locals) {
+      const v = typeof i === 'number' && !params.has(i) ? init0[i] : undefined;
+      if (!v || Array.isArray(v) || v.str !== undefined || l.t.kind === 'array' || !(v.w > 0) || v.x === (1n << BigInt(v.w)) - 1n) continue;
+      pre += `${ind}${l.name} = ${lit(V.resize(v, wOf(l.t)), wOf(l.t))};\n`;
+    }
     (ctx.extraLocals ||= []).push(...sub.locals.values(), ...(sub.extraLocals || []));
     return pre + body;
   }
@@ -694,7 +722,11 @@ export function toVerilog(design, { name } = {}) {
         body = resets.length ? `${txt}    else begin\n${cb}    end\n` : cb;
       }
       if (hasEdge(p.body) && !head.includes('edge')) fail('a clock edge not at the top of the process', p);
-      const loc = [...ctx.locals.values(), ...(ctx.extraLocals || [])].map(l => `  reg ${sgn(l.t) ? 'signed ' : ''}${l.t.kind === 'array' ? `[${wOf(l.t.elem) - 1}:0] ${l.name} [0:${l.t.len - 1}]` : `[${wOf(l.t) - 1}:0] ${l.name}`};`);
+      // a process variable keeps its value from one activation to the next: its declared initial
+      // value is the register's (the INIT of its flip-flops)
+      const init0 = p.frameInit ? p.frameInit() : [];
+      const vinit = (i, l) => { const v = typeof i === 'number' ? init0[i] : undefined; return v && !Array.isArray(v) && v.str === undefined && l.t.kind !== 'array' && v.w > 0 && v.x !== (1n << BigInt(v.w)) - 1n ? ` = ${lit(V.resize(v, wOf(l.t)), wOf(l.t))}` : ''; };
+      const loc = [...[...ctx.locals.entries()].map(([i, l]) => [i, l]), ...(ctx.extraLocals || []).map(l => [null, l])].map(([i, l]) => `  reg ${sgn(l.t) ? 'signed ' : ''}${l.t.kind === 'array' ? `[${wOf(l.t.elem) - 1}:0] ${l.name} [0:${l.t.len - 1}]` : `[${wOf(l.t) - 1}:0] ${l.name}${vinit(i, l)}`};`);
       let text = body;
       for (const f of ctx.flags) {
         const nm = uniq(`${ctx.base}${f}`);
@@ -764,7 +796,8 @@ export function toVerilog(design, { name } = {}) {
   // VHDL gives them in whatever case the design wrote)
   function instance({ inst, driven }) {
     const params = inst.params.filter(prm => prm.given).map(prm => `    .${prm.name.toUpperCase()}(${paramLit(prm, inst)})`);
-    const conns = [];
+    const cell = yosysCell(inst.module.toUpperCase(), inst.ports.map(pt => pt.name.toUpperCase()));
+    const conns = Object.entries(cell.tie).map(([pin, v]) => `    .${pin}(${v})`);
     for (const pt of inst.ports) {
       let x = sigName.get(pt.sig);
       // an input left unconnected (no actual drives its signal): the port's default value, if any
@@ -777,7 +810,7 @@ export function toVerilog(design, { name } = {}) {
     const rel = inst.path.startsWith(prefix) ? inst.path.slice(prefix.length) : inst.name;
     const iname = esc(uniq(rel.replace(/\./g, '_')));
     const src = inst.parent?.file ? ` (${inst.parent.file})` : '';
-    blocks.push(`  // ${inst.path}: ${inst.module}${src}\n  ${inst.module.toUpperCase()}${params.length ? ` #(\n${params.join(',\n')}\n  )` : ''} ${iname} (\n${conns.join(',\n')}\n  );`);
+    blocks.push(`  // ${inst.path}: ${inst.module}${src}\n  ${cell.name}${params.length ? ` #(\n${params.join(',\n')}\n  )` : ''} ${iname} (\n${conns.join(',\n')}\n  );`);
   }
 
   // ---------------- declarations
@@ -819,5 +852,5 @@ export function toVerilog(design, { name } = {}) {
   const mod = esc(name || top.name);
   const text = `// Generated by Silinx (core/synth-verilog.js) from the design '${top.name}': one flat module for synthesis.\n`
     + `module ${mod} (\n${portDecl.join(',\n')}\n);\n${decls.join('\n')}\n${funcs.join('\n')}${funcs.length ? '\n' : ''}${blocks.join('\n')}\nendmodule\n`;
-  return { text, top: mod.trim(), warnings, primitives: [...new Set(prims.map(pr => pr.inst.module.toUpperCase()))] };
+  return { text, top: mod.trim(), warnings, primitives: [...new Set(prims.map(pr => yosysCell(pr.inst.module.toUpperCase(), pr.inst.ports.map(pt => pt.name.toUpperCase())).name))] };
 }

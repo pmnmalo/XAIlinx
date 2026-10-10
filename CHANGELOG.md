@@ -54,6 +54,20 @@ the "What's new" text of its GitHub release.
   buffers, I/O…); the netlist is saved in `build/open/` (JSON and Verilog). Generated HDL files in
   `build/` are no longer added to the project's sources. (The app's download grows by the Yosys
   WebAssembly module, about 75 MB unpacked.)
+- **Fully open bitstreams** for the Spartan-3E XC3S250E: the router can keep to the routing switches
+  whose bits the database knows, and the packer can bring a carry out through an XOR stage instead
+  of the unmeasured XB / YB pins, so blinky and lab11 go from VHDL / Verilog to a `.bit` file with no
+  Xilinx tool at all (`research/s3e-route/open-flow.mjs`). Checked against ISE: 0 DRC errors and a
+  bitstream byte-identical to ISE's bitgen for the same routed design (8 placements, CRC on and off).
+- Tests with Xilinx ISE on another machine (for the developers, e.g. an Intel Mac where ISE runs
+  natively): `SILINX_ISE_HOST=user@host` runs the real ISE flow tests there (79 s instead of ~15 min
+  emulated), and `npm run check:open-flow` checks the fully open flow against ISE (design rule check,
+  byte-identical bitstreams). The open flow now synthesizes with the WebAssembly Yosys (nothing to
+  install).
+- Open synthesis fixes: instantiated FD, FDE, FDR, FDS, FDC, FDP, FDRS, FDCP, LD, LDE, LDC and LDP
+  primitives (not in Yosys's library) become the equivalent FDRE / FDSE / FDCE / FDPE / FDRSE /
+  FDCPE / LDCE / LDPE cells; a process variable's declared initial value is kept (it was lost: the
+  flip-flop started at 0); a procedure's variables start at their declared values on every call.
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - **Differential tests** of the front ends, the simulator and the open synthesis: every example
   and test design is simulated as RTL and as the Yosys netlist with the same random stimulus,

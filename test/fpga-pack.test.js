@@ -86,6 +86,53 @@ test('counter: carry chains as vertical groups, flip-flops in the slices of thei
   assert.equal(val(cmp[2], 'XBUSED'), '0');
 });
 
+test('carryOut xor: a carry out read by logic leaves through an XOR stage (LUT 0) and X / Y, never XB / YB', () => {
+  const nl = load('counter');
+  const p = pack(nl, { carryOut: 'xor' });
+  assert.ok(!p.insts.some(i => val(i, 'XBUSED') || val(i, 'YBUSED')));
+  assert.ok(!p.nets.some(n => n.outpins.some(o => o.pin === 'XB' || o.pin === 'YB')));
+  // the comparator ended on the F side of its third slice: the G side of that slice is the extra stage
+  const cmp = p.macros.filter(m => m.kind === 'carry').find(m => m.members.length === 3).members.map(x => p.insts[x.inst]);
+  assert.match(val(cmp[2], 'G'), /^#LUT:D=0$/);
+  assert.ok(cfgOf(cmp[2]).XORG);
+  assert.equal(val(cmp[2], 'GYMUX'), 'GXOR');
+  assert.equal(val(cmp[2], 'YUSED'), '0');
+  assert.ok(p.nets.some(n => n.outpins.some(o => o.inst === p.insts.indexOf(cmp[2]) && o.pin === 'Y')));
+  const d = compareSims(nl, p, { cycles: 600, seed: 7 });
+  assert.equal(d, null, d && `first difference at cycle ${d.cycle}`);
+});
+
+test('carryOut xor: a chain ending on the G side gets its XOR stage on the F side of a slice above (CIN)', () => {
+  // y = {a, c} >= {b, d}-like: two MUXCY stages (F, G of one slice) whose carry out drives a pad
+  const io = (t, i, o) => ({ type: t, parameters: {}, port_directions: { I: 'input', O: 'output' }, connections: { I: [i], O: [o] } });
+  const lut2 = (i0, i1, o) => ({ type: 'LUT2', parameters: { INIT: '1001' }, port_directions: { I0: 'input', I1: 'input', O: 'output' }, connections: { I0: [i0], I1: [i1], O: [o] } });
+  const muxcy = (ci, di, sel, o) => ({ type: 'MUXCY', parameters: {}, port_directions: { CI: 'input', DI: 'input', S: 'input', O: 'output' }, connections: { CI: [ci], DI: [di], S: [sel], O: [o] } });
+  const nl = readYosysJson(JSON.stringify({ modules: { cmp: {
+    attributes: { top: '00000000000000000000000000000001' },
+    ports: { a: { direction: 'input', bits: [2] }, b: { direction: 'input', bits: [3] }, c: { direction: 'input', bits: [4] }, d: { direction: 'input', bits: [5] }, y: { direction: 'output', bits: [10] } },
+    cells: {
+      ia: io('IBUF', 2, 12), ib: io('IBUF', 3, 13), ic: io('IBUF', 4, 14), id: io('IBUF', 5, 15), oy: io('OBUF', 9, 10),
+      s0: lut2(12, 13, 6), s1: lut2(14, 15, 7), m0: muxcy('0', 12, 6, 8), m1: muxcy(8, 14, 7, 9),
+    },
+    netnames: {},
+  } } }));
+  const p = pack(nl, { carryOut: 'xor' });
+  const chain = p.macros.find(m => m.kind === 'carry').members.map(x => p.insts[x.inst]);
+  assert.equal(chain.length, 2);
+  assert.ok(cfgOf(chain[0]).CYMUXG && cfgOf(chain[0]).CYMUXF);
+  assert.equal(val(chain[0], 'COUTUSED'), '0');
+  assert.deepEqual([val(chain[1], 'CYINIT'), val(chain[1], 'FXMUX'), val(chain[1], 'XUSED')], ['CIN', 'FXOR', '0']);
+  assert.match(val(chain[1], 'F'), /^#LUT:D=0$/);
+  assert.ok(cfgOf(chain[1]).XORF);
+  const k = chain.map(s => p.insts.indexOf(s));
+  assert.deepEqual(p.nets.find(n => n.outpins[0]?.inst === k[0] && n.outpins[0].pin === 'COUT').inpins, [{ inst: k[1], pin: 'CIN' }]);
+  assert.ok(p.nets.some(n => n.outpins[0]?.inst === k[1] && n.outpins[0].pin === 'X'));
+  const d = compareSims(nl, p, { cycles: 64, seed: 3 });
+  assert.equal(d, null, d && `first difference at cycle ${d.cycle}`);
+  // the default: through YB, as ISE does
+  assert.ok(pack(nl).nets.some(n => n.outpins.some(o => o.pin === 'YB')));
+});
+
 test('wide multiplexers: F5 in every slice, F6 / F7 / F8 in their fixed slices', () => {
   const p = pack(load('mux64'));
   const f8 = p.macros.filter(m => m.kind === 'F8');

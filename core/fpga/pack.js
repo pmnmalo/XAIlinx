@@ -59,8 +59,12 @@ export const WIDE_MUX = {
 const clean = s => String(s).replace(/^\\/, '').replace(/[\s"\\:]/g, '_');
 const escCfg = clean;
 
-/** Pack a netlist. ucf: UCF text or parseUcf() result (LOC, IOSTANDARD, DRIVE, SLEW, PULL). */
-export function pack(nl, { ucf = null, part = 'xc3s250ecp132-4' } = {}) {
+/** Pack a netlist. ucf: UCF text or parseUcf() result (LOC, IOSTANDARD, DRIVE, SLEW, PULL).
+ *  carryOut: how the carry out of a chain's last stage leaves the slice when logic reads it:
+ *  'pin' (default, as ISE does: the XB / YB pin of the carry multiplexer) or 'xor' (one more
+ *  stage, XOR with a LUT giving 0, so it leaves through X / Y like a sum: no XB / YB, whose output
+ *  switches and settings Silinx's bitstream writer does not know yet). */
+export function pack(nl, { ucf = null, part = 'xc3s250ecp132-4', carryOut = 'pin' } = {}) {
   const warnings = [];
   const cons = typeof ucf === 'string' ? parseUcf(ucf).assignments : ucf?.assignments || ucf || {};
   // own copies: the packer renames pins (INV -> LUT1, MUXF -> LUT3) and must not change its input
@@ -90,6 +94,7 @@ export function pack(nl, { ucf = null, part = 'xc3s250ecp132-4' } = {}) {
   const sink = new Map();          // `${cell}:${pin}` -> 'int' | { inst, pin, kind }
   const extra = [];                // inputs of LUTs added by the packer (copies, route-throughs): { net, inst, pin }
   const where = new Map();         // cell -> { inst, bel }
+  const tapOf = new Map();         // MUXCY cell -> { inst, bel } of the XOR that brings its carry out (carryOut 'xor')
   const setSink = (c, pin, v) => sink.set(`${c}:${pin}`, v);
   const stats = { copies: 0, passthru: 0 };
   let ucount = 0;
@@ -228,6 +233,7 @@ export function pack(nl, { ucf = null, part = 'xc3s250ecp132-4' } = {}) {
     const last = stages.at(-1).mux;
     const x = takeXor(last.pins.O);
     if (x) stages.push({ mux: null, ci: last.pins.O, s: x.pins.LI, di: null, xor: x });
+    else if (carryOut === 'xor' && loadsOf(last.pins.O).length) stages.push({ tap: last, ci: last.pins.O });
     chains.push(stages);
   }
   for (const x of xorcy) if (!usedXor.has(x)) { usedXor.add(x); chains.push([{ mux: null, ci: x.pins.CI, s: x.pins.LI, di: null, xor: x }]); }
@@ -259,6 +265,16 @@ export function pack(nl, { ucf = null, part = 'xc3s250ecp132-4' } = {}) {
         placeLut(s, 'F', k !== undefined ? { name, k: 0, init: '0', inputs: [], pins: [], cell: -1, out: null } : { name, k: 1, init: '00', inputs: [st.ci], pins: [1], cell: -1, out: null }, -1);
         stats.passthru++;
         s.carry.F = { mux: { name: `${name}_cy` }, xor: null, cy0: k !== undefined ? String(k) : 'F1' };
+        return;
+      }
+      if (st.tap) {
+        // the carry out read by logic: CI XOR 0 (a LUT giving 0) is the carry, out through X / Y
+        const name = `${st.tap.name}_out`;
+        placeLut(s, side, { name, k: 0, init: '0', inputs: [], pins: [], cell: -1, out: null }, -1);
+        stats.passthru++;
+        s.carry[side] = { mux: null, xor: { name: `${name}_xor` }, cy0: null };
+        if (side === 'F') { s.carry.init = 'CIN'; insts[s.idx - 1].carry.cout = true; }
+        tapOf.set(ci(st.tap), { inst: s.idx, bel: `XOR${side}` });
         return;
       }
       const users = [];
@@ -523,7 +539,7 @@ export function pack(nl, { ucf = null, part = 'xc3s250ecp132-4' } = {}) {
   }
   // the source pin of a cell's output for a connection of this kind
   const srcPin = (cell, kind) => {
-    const w = where.get(cell);
+    const w = (kind === 'gen' && tapOf.get(cell)) || where.get(cell);
     const s = insts[w.inst];
     if (kind === 'f5') { s.f5out = true; return { inst: w.inst, pin: 'F5' }; }
     if (kind === 'fx') { s.fxout = true; return { inst: w.inst, pin: 'FX' }; }

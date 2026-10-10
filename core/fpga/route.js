@@ -20,6 +20,10 @@
 //   of the net's own source site onto a free output pin: a carry chain whose last COUT does not go
 //   to a CIN leaves the slice through YB (COUT -> YB), as ISE routes it. Through any other site they
 //   would need that site configured for it, so they are never used.
+// - Known switches only (opts.allowPip): the router can be restricted to the PIPs a bitstream writer
+//   knows the bits of (core/fpga/bitgen.js knownRouting(db)), so the routed design can be turned
+//   into a complete bitstream without Xilinx's bitgen; a sink that cannot be reached that way makes
+//   its net fail (listed in `failed`), never a route through an unknown switch.
 
 import { PIP_ROUTETHRU } from './device.js';
 
@@ -106,8 +110,12 @@ function globalClockMask(device) {
 
 /**
  * Route a placed design. `design` is parseXdl()'s structure (its existing PIPs are ignored and
- * replaced); `device` a Device (loadDevice). Options: maxIterations (50), log (fn).
- * Returns { design (a copy with the PIPs of every routed net), routed, failed: [names], iterations,
+ * replaced); `device` a Device (loadDevice). Options: maxIterations (50), log (fn),
+ * allowPip(tileName, from, to) (PIPs the router may use, wires in the direction of the signal;
+ * default all), allowConstSource('vcc' | 'gnd', site) (sites that may be made the source of a
+ * VCC / GND net without one; site: { name, tileName, type }; default all).
+ * Returns { design (a copy with the PIPs of every routed net), routed, failed: [names],
+ * unreached: [{ net, inst, pin }] (the sinks of the failed nets not reached), iterations,
  * overused (nodes still shared at the end: 0 when successful), errors, pips, timeMs }.
  */
 export function routeDesign(design, device, opts = {}) {
@@ -118,6 +126,14 @@ export function routeDesign(design, device, opts = {}) {
   const E = device.routingEdges();
   const N = device.nodeCount;
   const gclk = globalClockMask(device);
+  // the PIPs the router may use (opts.allowPip), decided once per edge when the search first meets it
+  const allowPip = opts.allowPip || null;
+  const allowed = allowPip ? new Uint8Array(E.edgeTo.length) : null;   // 0 not decided, 1 yes, 2 no
+  const edgeOk = e => {
+    if (!allowed) return true;
+    if (!allowed[e]) { const [a, b] = device.pipWires(E.edgeTile[e], E.edgePip[e]); allowed[e] = allowPip(device.tileNames[E.edgeTile[e]], a, b) ? 1 : 2; }
+    return allowed[e] === 1;
+  };
 
   // power nets without a source (as a placer writes them): tied to made-up sources, as ISE does
   const work = [];
@@ -136,7 +152,8 @@ export function routeDesign(design, device, opts = {}) {
     const usedSites = new Set(design.insts.filter(i => i.placed).map(i => i.site));
     for (const n of all) for (const site of n.sourceSites) usedSites.add(site);   // ISE's made-up sources too
     for (const n of [...sourceless.vcc, ...sourceless.gnd]) tied.add(n.net);
-    work.push(...tieConstants(sourceless.vcc, 'vcc', device, usedSites, errors), ...tieConstants(sourceless.gnd, 'gnd', device, usedSites, errors));
+    const tie = { device, usedSites, errors, allowPip, allowSource: opts.allowConstSource || null };
+    work.push(...tieConstants(sourceless.vcc, 'vcc', tie), ...tieConstants(sourceless.gnd, 'gnd', tie));
   }
   // pins belong to their net: no other net may route through them
   const owner = new Int32Array(N).fill(-1);
@@ -153,6 +170,7 @@ export function routeDesign(design, device, opts = {}) {
   for (let n = 0; n < N; n++) edgeFrom.fill(n, E.edgeStart[n], E.edgeStart[n + 1]);
   const heap = new Heap();
   const failed = new Set();
+  const unreached = new Map();     // net index -> sinks not reached in its last routing
 
   // A* from the tree to one sink; returns the list of edges of the new branch (sink first) or null
   const search = (tree, sink, netIdx, pf, restrict) => {
@@ -185,6 +203,7 @@ export function routeDesign(design, device, opts = {}) {
         if (done[m] === curStamp) continue;
         if (owner[m] >= 0 && owner[m] !== netIdx) continue;
         if (restrict && !restrict[m] && m !== sink) continue;
+        if (!edgeOk(e)) continue;
         const over = occ[m];      // other nets on this node (this net is ripped up)
         const c = (1 + hist[m]) * (1 + pf * over);
         const gm = g[n] + c;
@@ -206,11 +225,12 @@ export function routeDesign(design, device, opts = {}) {
     const dist = s => Math.abs(device.nodeR0[s.node] - device.nodeR0[src]) + Math.abs(device.nodeC0[s.node] - device.nodeC0[src]);
     const sinks = [...net.sinks].sort((a, b) => dist(a) - dist(b));
     let ok = true;
+    unreached.delete(i);
     for (const s of sinks) {
       if (tree.has(s.node)) continue;
       let path = net.clock ? search(tree, s.node, i, pf, gclk) : null;
       if (!path) path = search(tree, s.node, i, pf, null);
-      if (!path) { ok = false; continue; }
+      if (!path) { ok = false; unreached.set(i, [...(unreached.get(i) || []), s.pin]); continue; }
       for (const e of path) tree.set(E.edgeTo[e], e);
     }
     for (const n of tree.keys()) occ[n]++;
@@ -262,6 +282,7 @@ export function routeDesign(design, device, opts = {}) {
   }
   return {
     design: out, routed: work.length - failed.size, failed: [...failed].map(i => work[i].name),
+    unreached: [...failed].flatMap(i => (unreached.get(i) || []).map(p => ({ net: work[i].name, inst: p.inst, pin: p.pin }))),
     iterations: Math.min(iter, maxIter), overused, errors, pips: pipCount, timeMs: Date.now() - t0,
   };
 }
@@ -277,15 +298,20 @@ export function routeDesign(design, device, opts = {}) {
 //   inst "XDL_DUMMY_CLB_X9Y1_SLICE_X17Y1" "SLICEL", placed CLB_X9Y1 SLICE_X17Y1, cfg "_NO_USER_LOGIC:: _GND_SOURCE::Y ";
 //   inst "XDL_DUMMY_CLKB_X13Y0_VCC_X15Y0" "VCC", placed CLKB_X13Y0 VCC_X15Y0, cfg "_NO_USER_LOGIC:: _VCC_SOURCE::VCCOUT ";
 // All the sourceless nets of one kind are the same signal, so they are merged and split again
-// into one net per source.
-function tieConstants(nets, kind, device, usedSites, errors) {
+// into one net per source. allowSource / allowPip (routeDesign's options): the sites that may be a
+// source and the PIPs that may be used (a VCC site reaches a sink "directly" through an allowed PIP).
+function tieConstants(nets, kind, { device, usedSites, errors, allowPip, allowSource }) {
   if (!nets.length) return [];
   const pin = kind === 'vcc' ? 'VCCOUT' : 'Y';
   const cands = (kind === 'vcc' ? device.sites('VCC') : [...device.sites('SLICEL'), ...device.sites('SLICEM')])
-    .filter(s => !usedSites.has(s.name))
+    .filter(s => !usedSites.has(s.name) && (!allowSource || allowSource(kind, s)))
     .map(s => ({ ...s, node: device.sitePinNode(s.name, pin) }))
     .filter(s => s.node >= 0);
-  const reachesDirectly = (src, sink) => { let ok = false; device.forEachPip(src, (to, k, i, f) => { if (to === sink && !(f & PIP_ROUTETHRU)) ok = true; }); return ok; };
+  const reachesDirectly = (src, sink) => {
+    let ok = false;
+    device.forEachPip(src, (to, k, i, f) => { if (to === sink && !(f & PIP_ROUTETHRU) && (!allowPip || allowPip(device.tileNames[k], ...device.pipWires(k, i)))) ok = true; });
+    return ok;
+  };
   const groups = new Map();
   for (const n of nets) for (const s of n.sinks) {
     const r = device.nodeR0[s.node], c = device.nodeC0[s.node];

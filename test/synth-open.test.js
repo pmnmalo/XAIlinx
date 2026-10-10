@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, elaborate } from '../core/compile.js';
+import { primitiveSources } from '../core/unisim.js';
 import { synthesizeOpen, yosysScript, cellCounts, utilization, lineStream, YOSYS_FAMILY } from '../core/synth-open.js';
 import { yosysNode } from '../core/synth-open-node.js';
 import { readYosysJson } from '../core/fpga/netlist.js';
@@ -75,4 +76,42 @@ test('a design Yosys cannot map is reported with its messages', { timeout: 12000
   assert.match(lines[0], /^ERROR: Module/);
   // and the real one, on a script error
   await assert.rejects(yosysNode(['-q', '-p', 'read_verilog nofile.v'], {}), /Yosys failed \(exit code 1\)/);
+});
+
+test('instantiated FD / FDCE / LD primitives and initialized variables: synthesized by Yosys, they behave as in VHDL', { timeout: 120000 }, async () => {
+  const text = `library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; library unisim; use unisim.vcomponents.all;
+entity t is port (clk, d, ce, clr, g : in std_logic; a : in unsigned(3 downto 0); q, q2, q3, t1 : out std_logic; s : out unsigned(3 downto 0)); end t;
+architecture rtl of t is
+  procedure addk(x : in unsigned(3 downto 0); signal y : out unsigned(3 downto 0)) is
+    variable k : unsigned(3 downto 0) := "0011";
+  begin k := k + x; y <= k; end procedure;
+begin
+  u1: FD port map (C => clk, D => d, Q => q);
+  u2: FDCE port map (C => clk, CE => ce, CLR => clr, D => d, Q => q2);
+  u3: LD port map (G => g, D => d, Q => q3);
+  process (clk) variable v : std_logic := '1'; begin if rising_edge(clk) then v := not v; t1 <= v; end if; end process;
+  process (clk) begin if rising_edge(clk) then addk(a, s); end if; end process;
+end rtl;
+`;
+  const srcs = [{ path: 't.vhd', lang: 'vhdl', text }];
+  const r = await synthesizeOpen(elaborate(compile([...primitiveSources(srcs), ...srcs]), 't'), { run: yosysNode });
+  assert.equal(r.cells.FDCE, 1);
+  assert.equal(r.cells.LDCE, 1);
+  const sim = netlistSim(readYosysJson(r.files['t.json']));
+  const cycle = (v) => { sim.step({ ...v, clk: 0 }); sim.step({ ...v, clk: 1 }); return sim.out(); };
+  const sOf = (o) => [0, 1, 2, 3].reduce((n, i) => n | (o[`s<${i}>`] << i), 0);
+  const ins = (d, a) => ({ d, ce: 1, clr: 0, g: 0, ...Object.fromEntries([0, 1, 2, 3].map((i) => [`a<${i}>`, (a >> i) & 1])) });
+  const t1 = [];
+  for (const [d, a] of [[1, 5], [0, 7], [1, 1], [1, 12]]) {
+    const o = cycle(ins(d, a));
+    assert.equal(o.q, d, 'FD');
+    assert.equal(o.q2, d, 'FDCE');
+    assert.equal(sOf(o), (a + 3) & 15, 'the procedure\'s k starts at 3 on every call');
+    t1.push(o.t1);
+  }
+  assert.deepEqual(t1, [0, 1, 0, 1], 'v starts at 1');
+  // the latch follows D while G is high, holds while it is low
+  sim.step({ ...ins(1, 0), clk: 0, g: 1 }); assert.equal(sim.out().q3, 1);
+  sim.step({ ...ins(0, 0), clk: 0, g: 0 }); assert.equal(sim.out().q3, 1);
+  sim.step({ ...ins(0, 0), clk: 0, g: 1 }); assert.equal(sim.out().q3, 0);
 });
