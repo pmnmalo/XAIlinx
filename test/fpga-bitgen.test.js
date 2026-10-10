@@ -149,7 +149,7 @@ test('frame data: defaults, features at tile offsets, LUTs stored inverted, unkn
   for (let a = 0; a < 16; a++) assert.equal(getBit(frames, FW, 13, 148 + a), a & 1 ? 0 : 1);
   // LUT G (unused): the 16 bits before, all 1
   for (let a = 0; a < 16; a++) assert.equal(getBit(frames, FW, 13, 132 + a), 1);
-  assert.deepEqual(unknown.map(u => u.feature).sort(), ['IOB2:PULL:PULLUP', 'IOB2:USED', 'SLICE2:F:#LUT', 'SLICE2:FXMUX:#OFF', 'SLICE2:XORF:'].sort());
+  assert.deepEqual(unknown.map(u => u.feature).sort(), ['I:PULL:PULLUP', 'IOB2:USED', 'SLICE2:F:#LUT', 'SLICE2:FXMUX:#OFF', 'SLICE2:XORF:'].sort());
   // the pad's own setting (absolute bits)
   assert.equal(getBit(frames, FW, 500, 2300), 1);
 });

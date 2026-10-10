@@ -145,9 +145,13 @@
    "USED": ["1,50", "1,51"],
    "VDDF:": [],
    "VDDG:": [],
+   "XBMUX:1": [],
+   "XBUSED:0": [],
    "XORF:": [],
    "XORG:": [],
    "XUSED:0": [],
+   "YBMUX:1": [],
+   "YBUSED:0": [],
    "YUSED:0": []
   },
   "SLICE1": {
@@ -223,9 +227,13 @@
    "USED": ["1,18", "1,19"],
    "VDDF:": [],
    "VDDG:": [],
+   "XBMUX:1": [],
+   "XBUSED:0": [],
    "XORF:": [],
    "XORG:": [],
    "XUSED:0": [],
+   "YBMUX:1": [],
+   "YBUSED:0": [],
    "YUSED:0": []
   },
   "SLICE2": {
@@ -301,9 +309,11 @@
    "USED": [],
    "VDDF:": [],
    "VDDG:": [],
+   "XBUSED:0": [],
    "XORF:": [],
    "XORG:": [],
    "XUSED:0": [],
+   "YBUSED:0": [],
    "YUSED:0": []
   },
   "SLICE3": {
@@ -382,6 +392,7 @@
    "XORF:": [],
    "XORG:": [],
    "XUSED:0": [],
+   "YBUSED:0": [],
    "YUSED:0": []
   }
  }

@@ -45,12 +45,14 @@ if (process.argv[1] && process.argv[1].endsWith('share-sb.mjs')) {
       }
     }
   }
-  // the terminal tiles (…TERM…): their PIPs join the wires at the edges of the chip and set no bits
+  // the terminal tiles (…TERM…): their PIPs join the wires at the edges of the chip and set no bits;
+  // the block-RAM sites' tiles (BRAMSITE2…): their PIPs only join the RAM's and multiplier's pins to
+  // the interconnect (none of 500 measured has bits)
   // (thousands of measurements without bits; the few with bits were bits of the I/O tile measured
   // in the same frames)
   let term = 0;
   for (const [type, t] of Object.entries(db.types)) {
-    if (!/TERM/.test(type)) continue;
+    if (!/TERM|^BRAMSITE2(_BRK)?$/.test(type)) continue;
     t.pipsWithoutBits = true;
     for (const f of Object.keys(t.features)) if (/->|=-/.test(f)) { if (t.features[f].length) term++; delete t.features[f]; }
   }
