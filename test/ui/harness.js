@@ -76,7 +76,12 @@ class CDP {
     const id = ++this.id;
     const msg = { id, method, params };
     if (sessionId) msg.sessionId = sessionId;
-    return new Promise((resolve, reject) => { this.pending.set(id, { resolve, reject, method }); this.ws.send(JSON.stringify(msg)); });
+    const p = new Promise((resolve, reject) => { this.pending.set(id, { resolve, reject, method }); this.ws.send(JSON.stringify(msg)); });
+    // SILINX_UI_CDP_TIMEOUT=30000: a call Chrome does not answer fails (names the method) instead of hanging
+    const ms = +process.env.SILINX_UI_CDP_TIMEOUT;
+    if (!ms) return p;
+    let to;
+    return Promise.race([p, new Promise((_, reject) => { to = setTimeout(() => { this.pending.delete(id); reject(new Error(`CDP ${method} got no answer in ${ms} ms${method === 'Runtime.evaluate' ? `: ${String(params.expression).slice(0, 160)}` : ''}`)); }, ms); })]).finally(() => clearTimeout(to));
   }
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   close() { try { this.ws.close(); } catch { /* ignore */ } }
