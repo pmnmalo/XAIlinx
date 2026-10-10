@@ -2031,12 +2031,14 @@ async function syncHdlFromFsm(fsmPath, model) {
     return;
   }
   const g = generateFsm(m, /\.v$/i.test(target) ? 'verilog' : 'vhdl', { source: fsmPath.split('/').pop() });
-  if (S.outOfSync[target]) { delete S.outOfSync[target]; refreshSyncBanner(target); refreshFsmLink(fsmPath); }
+  // back in sync once the HDL is written (not before: the link would say so while the file is old)
+  const inSync = () => { if (S.outOfSync[target]) { delete S.outOfSync[target]; refreshSyncBanner(target); refreshFsmLink(fsmPath); } };
   const cur = S.sources.find(x => x.path === target)?.text;
-  if (cur === g.code) return;
+  if (cur === g.code) return inSync();
   S.syncing = true;
   try {
     await api.writeFile(S.project.name, target, g.code);
+    inSync();
     const src = S.sources.find(x => x.path === target); if (src) src.text = g.code;
     refreshOpenEditor(target, g.code);
     compileProject(); renderHierarchy(); markStale();

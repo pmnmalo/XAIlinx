@@ -175,11 +175,18 @@ uiTest('State diagram (FSM): New Source, states and transitions drawn and edited
   await page.waitFor(() => /Not in sync with det\.fsm\.json — the diagram cannot show it: process at line \d+ is not part of the state machine \(it drives 'cnt'\)/.test(document.querySelector('.doc:not([hidden]) [data-sync-banner]')?.textContent || ''), [], { what: 'out-of-sync banner', timeout: 15000 });
   await page.eval(() => window.SilinxApp.openFsm('src/det.fsm.json'));
   await page.waitFor((ed) => /Not in sync with det\.vhd/.test(document.querySelector(`${ed} .fsm-link`).textContent), [ED]);
-  // editing the diagram again rewrites the HDL: back in sync
+  // editing the diagram again rewrites the HDL: back in sync, and said so only once the file is
+  // written (the save is slowed down here: a slow disk / server, as on CI)
+  await page.eval(() => {
+    const f = window.fetch;
+    window.fetch = (url, init) => (init?.method === 'PUT' && /path=src%2Fdet\.vhd/.test(String(url)) ? new Promise((r) => setTimeout(r, 1500)).then(() => f(url, init)) : f(url, init));
+    window.__restoreFetch = () => { window.fetch = f; };
+  });
   await selectTrans(page, 't1');
   await page.fill(`${ED} .fsm-cond`, 'x');
   await page.waitFor((ed) => /Synchronized with det\.vhd/.test(document.querySelector(`${ed} .fsm-link`).textContent), [ED], { what: 'back in sync', timeout: 15000 });
   vhd = await readWs(env, 'FsmPj', 'src/det.vhd');
+  await page.eval(() => window.__restoreFetch());
   assert.doesNotMatch(vhd, /cnt/);
   r = hdlVsModel(vhd, await fsmFile('FsmPj', 'src/det.fsm.json'));
   assert.deepEqual(r.got, r.want);
