@@ -483,6 +483,9 @@ export function mountFsmEditor(container, opts = {}) {
     }
     if (ev.button !== 0) return;
     root.focus({ preventScroll: true });
+    // the state or transition is drawn again below (render): without this, Safari (WebKit) sends
+    // the mousedown to the removed element and moves the keyboard focus to the page (Delete did nothing)
+    ev.preventDefault();
     const w = toWorld(ev.clientX, ev.clientY);
     const tEl = ev.target.closest('[data-trans]');
     if (tEl) {
