@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { parseXdl } from '../core/xdl.js';
-import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind } from '../core/fpga/bitgen.js';
+import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice } from '../core/fpga/bitgen.js';
 import { XC3S250E, readBit, getBit, diffFrames } from '../core/fpga/bitstream.js';
 
 const FW = XC3S250E.frameWords;
@@ -12,8 +12,8 @@ const FW = XC3S250E.frameWords;
 const tiny = () => makeDb({
   layout: { frameWords: 73, frames: 578, brkRows: [9], cols: { 1: 10, 2: 40 }, rows: { 1: 100, 0: 2256 }, defaults: [[3, 37]] },
   lut: { colFrame: { 0: 10, 1: 13 }, rowBit: { 0: 148, 1: 116 } },
+  pads: { P11: ['BIOIS_X1Y0', 2] },   // (from the device: padsFromDevice)
   tiles: {
-    pads: { P11: ['BIOIS_X1Y0', 2] },
     padFeatures: { P11: { 'I:LVCMOS33': ['500,2300'] } },
     types: {
       CENTER_SMALL: { features: { 'X0->OMUX0': ['6,28'], 'OMUX0->E2BEG0': ['7,1', '!8,2'], 'BX1->BY3': ['10,31'], 'BY3->BX1': [], 'SLICE2:CLKINV:CLK_B': ['5,26'], 'SLICE2:USED': [] } },
@@ -137,4 +137,20 @@ net "n" ,
   ;`);
   const { unknown } = frameData(d, db);
   assert.deepEqual(unknown, []);
+});
+
+test('padsFromDevice: the bonded I/O sites of the device, by their index among the I/O sites of the tile', () => {
+  // a synthetic device in the form of core/fpga/device.js: an I/O tile with other sites first, an
+  // unbonded pad, and an input-only pad; a CLB tile
+  const device = {
+    tileNames: ['TIOIS_X1Y35', 'CLB_X1Y1'],
+    tileTemplate: [0, 1],
+    templates: [{ sites: [{ type: 'VCC' }, { type: 'RESERVED_LL' }, { type: 'DIFFM' }, { type: 'DIFFS' }, { type: 'IOB' }, { type: 'IBUF' }] }, { sites: [{ type: 'SLICEM' }] }],
+    tileSites: [[['VCC_X2Y37', 0], ['RLL_X1Y35', 0], ['A3', 1], ['B3', 1], ['NOPAD0', 2], ['C4', 1]], [['SLICE_X0Y0', 0]]],
+    siteIndex: new Map([['VCC_X2Y37', [0, 0]], ['RLL_X1Y35', [0, 1]], ['A3', [0, 2]], ['B3', [0, 3]], ['NOPAD0', [0, 4]], ['C4', [0, 5]], ['SLICE_X0Y0', [1, 0]]]),
+  };
+  assert.deepEqual(padsFromDevice(device), { A3: ['TIOIS_X1Y35', 0], B3: ['TIOIS_X1Y35', 1], C4: ['TIOIS_X1Y35', 3] });
+  // the committed database has no pad table (it comes from the user's device report)
+  const tiles = JSON.parse(fs.readFileSync(new URL('../research/s3e-bitstream/db/xc3s250e-tiles.json', import.meta.url), 'utf8'));
+  assert.equal(tiles.pads, undefined);
 });
