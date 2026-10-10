@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { compile, elaborate } from '../core/compile.js';
 import { Simulator } from '../core/simulator.js';
 import * as V from '../core/values.js';
-import { toVerilog, synthWidth, lit, SynthError } from '../core/synth-verilog.js';
+import { toVerilog, synthWidth, lit, SynthError, yosysCell } from '../core/synth-verilog.js';
 import { UNISIM_SOURCE, primitiveSources } from '../core/unisim.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -453,4 +453,48 @@ test('fixture designs through Yosys (synth_xilinx -family xc3se): the netlist si
       });
     }
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('the simple UNISIM flip-flops and latches become the cells Yosys knows (unused pins tied inactive)', () => {
+  const c = (n, p) => yosysCell(n, p.split(' '));
+  assert.deepEqual(c('FD', 'C D Q'), { name: 'FDRE', tie: { CE: "1'b1", R: "1'b0" } });
+  assert.deepEqual(c('FDE', 'C CE D Q'), { name: 'FDRE', tie: { R: "1'b0" } });
+  assert.deepEqual(c('FDS', 'C S D Q'), { name: 'FDSE', tie: { CE: "1'b1" } });
+  assert.deepEqual(c('FDC_1', 'C CLR D Q'), { name: 'FDCE_1', tie: { CE: "1'b1" } });
+  assert.deepEqual(c('FDCP', 'C CLR PRE D Q'), { name: 'FDCPE', tie: { CE: "1'b1" } });
+  assert.deepEqual(c('LD', 'G D Q'), { name: 'LDCE', tie: { CLR: "1'b0", GE: "1'b1" } });
+  assert.deepEqual(c('LDE', 'G GE D Q'), { name: 'LDCE', tie: { CLR: "1'b0" } });
+  assert.deepEqual(c('LDP', 'G PRE D Q'), { name: 'LDPE', tie: { GE: "1'b1" } });
+  for (const n of ['FDRE', 'FDCPE_1', 'LDCE', 'BUFG', 'RAMB16_S9']) assert.deepEqual(c(n, 'X'), { name: n, tie: {} });
+  assert.deepEqual(c('LD_1', 'G D Q'), { name: 'LD_1', tie: {} });   // none in Yosys's library: Yosys says so
+  // in the text
+  const text = `library ieee; use ieee.std_logic_1164.all; library unisim; use unisim.vcomponents.all;
+entity t is port (clk, d, g : in std_logic; q, q2 : out std_logic); end t;
+architecture rtl of t is begin
+  u1: FD generic map (INIT => '1') port map (C => clk, D => d, Q => q);
+  u2: LD port map (G => g, D => d, Q => q2);
+end rtl;
+`;
+  const srcs = [{ path: 't.vhd', lang: 'vhdl', text }];
+  const r = toVerilog(elaborate(compile([...primitiveSources(srcs), ...srcs]), 't'));
+  assert.match(r.text, /FDRE #\(\n {4}\.INIT\(1'h1\)\n {2}\) u1 \(\n {4}\.CE\(1'b1\),\n {4}\.R\(1'b0\),\n {4}\.C\(clk\)/);
+  assert.match(r.text, /LDCE u2 \(\n {4}\.CLR\(1'b0\),\n {4}\.GE\(1'b1\),\n {4}\.G\(g\)/);
+  assert.deepEqual(r.primitives, ['FDRE', 'LDCE']);
+});
+
+test('variables keep their declared initial values: a process\'s as its register\'s, a procedure\'s on every call', () => {
+  const text = `library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity t is port (clk : in std_logic; a : in unsigned(3 downto 0); q : out std_logic; s : out unsigned(3 downto 0)); end t;
+architecture rtl of t is
+  procedure addk(x : in unsigned(3 downto 0); signal y : out unsigned(3 downto 0)) is
+    variable k : unsigned(3 downto 0) := "0011";
+  begin k := k + x; y <= k; end procedure;
+begin
+  process (clk) variable v : std_logic := '1'; begin if rising_edge(clk) then v := not v; q <= v; end if; end process;
+  process (clk) begin if rising_edge(clk) then addk(a, s); end if; end process;
+end rtl;
+`;
+  const r = toVerilog(elaborate(compile([{ path: 't.vhd', lang: 'vhdl', text }]), 't'));
+  assert.match(r.text, /reg \[0:0\] p0_v0 = 1'h1;/);
+  assert.match(r.text, /p1_addk0_v0 = a;\n {4}p1_addk0_v1 = 4'h3;\n {4}p1_addk0_v1 = 4'\(p1_addk0_v1 \+ p1_addk0_v0\);/);
 });

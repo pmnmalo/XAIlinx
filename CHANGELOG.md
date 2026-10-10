@@ -64,6 +64,10 @@ the "What's new" text of its GitHub release.
   emulated), and `npm run check:open-flow` checks the fully open flow against ISE (design rule check,
   byte-identical bitstreams). The open flow now synthesizes with the WebAssembly Yosys (nothing to
   install).
+- Open synthesis fixes: instantiated FD, FDE, FDR, FDS, FDC, FDP, FDRS, FDCP, LD, LDE, LDC and LDP
+  primitives (not in Yosys's library) become the equivalent FDRE / FDSE / FDCE / FDPE / FDRSE /
+  FDCPE / LDCE / LDPE cells; a process variable's declared initial value is kept (it was lost: the
+  flip-flop started at 0); a procedure's variables start at their declared values on every call.
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - How the open toolchain for the Spartan-3E is being developed: `docs/OPEN-TOOLCHAIN.md`, and the
   first experiments in `research/s3e-bitstream`.
