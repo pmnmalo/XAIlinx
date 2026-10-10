@@ -12,6 +12,9 @@
     "test:ui": "node --test test/ui/*.test.js",
     "test:ise": "SILINX_ISE_TESTS=1 node --test test/ise/*.test.js",
     "test:webkit": "node --test test/webkit/*.test.js",
+    "test:corpus": "node test/corpus/run-corpus.mjs",
+    "test:vloghammer": "node test/corpus/vloghammer.mjs",
+    "fetch:yosys-tests": "node scripts/fetch-yosys-tests.mjs",
     "build:standalone": "node scripts/build-standalone.mjs",
     "version": "node scripts/sync-version.mjs && git add core/version.js"
   },

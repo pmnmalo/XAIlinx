@@ -3,3 +3,4 @@ node_modules/
 *.vcd
 dist/
 .claude/
+.cache/

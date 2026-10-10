@@ -1,7 +1,10 @@
 // Test helper (not a test file): two small cycle simulators that check the packer without ISE.
 //
 //   netlistSim(nl)     the Yosys netlist (core/fpga/netlist.js): LUT1..4, INV, MUXF5..8, MUXCY, XORCY,
-//                      FD*/LD* flip-flops and latches, IBUF / OBUF / BUFG
+//                      FD*/LD* flip-flops and latches, IBUF / OBUF / BUFG, distributed RAMs
+//                      (RAM16X1S / RAM32X1S / RAM64X1S / RAM16X1D), MULT18X18; and the combinational
+//                      gates of Yosys's internal cell library ($_AND_, $_MUX_… after a generic
+//                      `synth`) (CELLS_SIMULATED)
 //   packedSim(packed)  the packed design (core/fpga/pack.js) read from its XDL configuration strings
 //                      and site-pin nets, with the slice as the Spartan-3E slice works (as the
 //                      XDLRC primitive_def SLICEL describes its elements and connections)
@@ -13,6 +16,18 @@ import { evalLut } from '../core/xdl.js';
 import { paramBits, paramInt } from '../core/fpga/netlist.js';
 
 const LUT_K = { LUT1: 1, LUT2: 2, LUT3: 3, LUT4: 4 };
+const RAM_A = { RAM16X1S: 4, RAM32X1S: 5, RAM64X1S: 6, RAM16X1D: 4 };
+/** The cell types netlistSim models. */
+export const CELLS_SIMULATED = /^(LUT[1-4]|INV|MUXF[5-8]|MUXCY|XORCY|(FDRE|FDSE|FDCE|FDPE|LDCE|LDPE)(_1)?|IBUF|IBUFG|OBUF|BUFG|BUF|RAM16X1S|RAM32X1S|RAM64X1S|RAM16X1D|MULT18X18|\$_(BUF|NOT|AND|NAND|OR|NOR|XOR|XNOR|ANDNOT|ORNOT|MUX|NMUX|AOI3|OAI3|AOI4|OAI4)_)$/;
+// Yosys's internal gates (techlibs/common/simcells.v): output Y
+const GATE = {
+  $_BUF_: p => p('A'), $_NOT_: p => 1 - p('A'),
+  $_AND_: p => p('A') & p('B'), $_NAND_: p => 1 - (p('A') & p('B')), $_OR_: p => p('A') | p('B'), $_NOR_: p => 1 - (p('A') | p('B')),
+  $_XOR_: p => p('A') ^ p('B'), $_XNOR_: p => 1 - (p('A') ^ p('B')), $_ANDNOT_: p => p('A') & (1 - p('B')), $_ORNOT_: p => p('A') | (1 - p('B')),
+  $_MUX_: p => (p('S') ? p('B') : p('A')), $_NMUX_: p => 1 - (p('S') ? p('B') : p('A')),
+  $_AOI3_: p => 1 - ((p('A') & p('B')) | p('C')), $_OAI3_: p => 1 - ((p('A') | p('B')) & p('C')),
+  $_AOI4_: p => 1 - ((p('A') & p('B')) | (p('C') & p('D'))), $_OAI4_: p => 1 - ((p('A') | p('B')) & (p('C') | p('D'))),
+};
 
 export function netlistSim(nl) {
   const v = new Array(nl.nets.length).fill(0);
@@ -26,6 +41,15 @@ export function netlistSim(nl) {
     const init = paramBits(c.params.INIT)?.[0] ?? (/^(FDSE|FDPE|FDS|FDP|LDPE)$/.test(c.type.replace(/_1$/, '')) ? 1 : 0);
     ffs.push({ c, latch: m[1] === 'LD', neg: !!m[3], q: init, prevClk: 0 });
   }
+  // distributed RAMs: contents from INIT, written on the rising WCLK edge when WE
+  const rams = [];
+  for (const c of nl.cells) if (RAM_A[c.type]) {
+    const n = 1 << RAM_A[c.type];
+    const bits = paramBits(c.params.INIT) || [];
+    rams.push({ c, k: RAM_A[c.type], mem: Array.from({ length: n }, (_, i) => bits[i] || 0), prevClk: 0 });
+  }
+  const ramOf = new Map(rams.map(r => [r.c, r]));
+  const addr = (c, pfx, k) => { let a = 0; for (let j = 0; j < k; j++) a |= v[c.pins[`${pfx}${j}`]] << j; return a; };
   const setOut = (c, val) => { const n = c.pins.O; if (n !== undefined && n > 1) v[n] = val; };
   const comb = () => {
     for (let it = 0; it < 200; it++) {
@@ -35,13 +59,24 @@ export function netlistSim(nl) {
       for (const c of nl.cells) {
         const p = k => v[c.pins[k]];
         let o;
+        if (GATE[c.type]) { put(c.pins.Y, GATE[c.type](p)); continue; }
         if (LUT_K[c.type]) { const bits = paramBits(c.params.INIT); let i = 0; for (let j = 0; j < LUT_K[c.type]; j++) i |= p(`I${j}`) << j; o = bits[i] || 0; }
         else if (c.type === 'INV') o = 1 - p('I');
         else if (/^MUXF[5-8]$/.test(c.type)) o = p('S') ? p('I1') : p('I0');
         else if (c.type === 'MUXCY') o = p('S') ? p('CI') : p('DI');
         else if (c.type === 'XORCY') o = p('CI') ^ p('LI');
         else if (/^(IBUF|IBUFG|OBUF|BUFG|BUF)$/.test(c.type)) o = p('I');
-        else continue;
+        else if (RAM_A[c.type]) {
+          const r = ramOf.get(c);
+          if (c.type === 'RAM16X1D') { put(c.pins.SPO, r.mem[addr(c, 'A', 4)]); put(c.pins.DPO, r.mem[addr(c, 'DPRA', 4)]); continue; }
+          o = r.mem[addr(c, 'A', r.k)];
+        } else if (c.type === 'MULT18X18') {
+          // signed 18 x 18 -> 36 bits
+          const num = pfx => { let n = 0n; for (let j = 0; j < 18; j++) if (v[c.pins[`${pfx}<${j}>`]]) n |= 1n << BigInt(j); return BigInt.asIntN(18, n); };
+          const prod = BigInt.asUintN(36, num('A') * num('B'));
+          for (let j = 0; j < 36; j++) put(c.pins[`P<${j}>`], Number((prod >> BigInt(j)) & 1n));
+          continue;
+        } else continue;
         put(c.pins.O, o);
       }
       // latches are transparent while their gate is active; they follow the logic once it has
@@ -83,6 +118,14 @@ export function netlistSim(nl) {
           f.next = q;
           f.nextClk = clk;
         }
+        const writes = [];
+        for (const r of rams) {
+          const c = r.c, clk = v[c.pins.WCLK] ^ paramInt(c.params.IS_WCLK_INVERTED);
+          if (clk && !r.prevClk && v[c.pins.WE]) writes.push([r, addr(c, 'A', r.k), v[c.pins.D]]);
+          r.nextClk = clk;
+        }
+        for (const [r, a, d] of writes) if (r.mem[a] !== d) { r.mem[a] = d; again = true; }
+        for (const r of rams) r.prevClk = r.nextClk;
         for (const f of ffs) if (!f.latch) { if (f.q !== f.next) again = true; f.q = f.next; f.prevClk = f.nextClk; }
         comb();
       }

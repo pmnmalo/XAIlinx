@@ -202,6 +202,30 @@ test('Verilog: always @(posedge clk or negedge rstn), case, ternary, concatenati
 endmodule`)], 'v', { reset: 'none' });
 });
 
+// Regressions found by differential testing against Yosys (test/corpus: the hana test f22_test of
+// Yosys's tests, VlogHammer-style modules): >>> of an unsigned value was written as an arithmetic
+// shift; signed operands of unsigned expressions were sign-extended; a case item wider than the
+// case expression was truncated into a label that matched; a select of a signed vector (unsigned)
+// was sign-extended; {s} of a signed s is unsigned.
+test('Verilog: signedness rules: >>> of unsigned, mixed-sign comparisons, ?: and nested operators, case item widths and signs', () => {
+  const { text } = equivalent([vlog(`module sg(input [3:0] u, input signed [3:0] s, input signed [4:0] t, input [1:0] n, input c,
+    output [3:0] y1, output [3:0] y2, output y3, output [7:0] y4, output [4:0] y5, output reg [1:0] y6, output reg [1:0] y7,
+    output [7:0] y8, output [7:0] y9, output [7:0] y10, output [7:0] y11);
+  assign y1 = u >>> 2;
+  assign y2 = s >>> 1;
+  assign y3 = u <= (c ? t : s);
+  assign y4 = u + (s + t);
+  assign y5 = c ? $signed(1'b1) : 1'b0;
+  always @* case (n) 3'b100: y6 = 2'd1; 3'b001: y6 = 2'd2; default: y6 = 2'd3; endcase
+  always @* case (s) 6'd15: y7 = 2'd1; -6'sd2: y7 = 2'd2; default: y7 = 2'd0; endcase
+  assign y8 = s[3 +: 1];
+  assign y9 = t[n +: 2];
+  assign y10 = s[2:1];
+  assign y11 = {s + t};
+endmodule`)], 'sg', { clock: 'none' });
+  assert.match(text, /y1 = 4'\(u >> /, 'a logical shift');
+});
+
 test('the blinky example (mixed VHDL and Verilog) behaves the same after translation', () => {
   const dir = path.join(ROOT, 'examples', 'blinky');
   const pj = JSON.parse(fs.readFileSync(path.join(dir, 'silinx.json'), 'utf8'));

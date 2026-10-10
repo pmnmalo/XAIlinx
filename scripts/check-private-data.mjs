@@ -20,6 +20,7 @@ export const ALLOW = [
   [/./, /^(192\.0\.2|198\.51\.100|203\.0\.113)\.\d+$/, 'documentation addresses (RFC 5737)'],
   [/./, /@(example\.(com|org|net)|[\w.-]+\.(example|test|invalid))$/, 'example domains (RFC 2606)'],
   [/./, /^(noreply@anthropic\.com|[\w.+-]+@users\.noreply\.github\.com)$/, 'no-reply addresses (the Co-Authored-By line of commits)'],
+  ['test/corpus/vloghammer-gen.mjs', 'claire@yosyshq.com', 'the copyright notice of VlogHammer (ISC licence), which a port must keep'],
   ['test/lang-vhdl-types.test.js', '6.4.2.3', 'a section of the VHDL standard'],
   ['test/server-api.test.js', 'fpga-lab.local', 'a made-up computer name for the Host header test'],
   ['test/impl.test.js', /^(dev@)?10\.0\.0\.2$/, 'a made-up address of an example (in the history only)'],

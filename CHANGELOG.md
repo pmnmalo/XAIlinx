@@ -55,6 +55,15 @@ the "What's new" text of its GitHub release.
   `build/` are no longer added to the project's sources. (The app's download grows by the Yosys
   WebAssembly module, about 75 MB unpacked.)
 - Verilog: SystemVerilog size casts `W'(expr)`.
+- **Differential tests** of the front ends, the simulator and the open synthesis: every example
+  and test design is simulated as RTL and as the Yosys netlist with the same random stimulus,
+  cycle by cycle; Yosys's own test designs (`npm run test:corpus`, fetched at a pinned version)
+  and VlogHammer-style random expressions (`npm run test:vloghammer`) are compared with Yosys.
+  Fixed what they found: Verilog signed operands in unsigned comparisons, shifts, `?:` and nested
+  expressions are zero-extended (they were sign-extended); `?:` of a signed and an unsigned operand
+  of the same width is unsigned; `case` items and expression are extended together (signed only
+  when all are); the synthesis front end wrote `>>>` of an unsigned value as an arithmetic shift
+  and could truncate a `case` item wider than the expression.
 - How the open toolchain for the Spartan-3E is being developed: `docs/OPEN-TOOLCHAIN.md`, and the
   first experiments in `research/s3e-bitstream`.
 

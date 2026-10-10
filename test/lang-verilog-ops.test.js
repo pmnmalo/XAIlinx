@@ -172,3 +172,54 @@ test('string literals are packed 8-bit characters; %s prints them', () => {
   `reg [8*3-1:0] s; reg [15:0] t;`));
   assert.deepEqual(r, ['Hi!|486921|24', 'ab 1']);
 });
+
+// Regressions found by differential testing against Yosys (test/corpus/vloghammer.mjs, a port of
+// VlogHammer's generator): IEEE 1364-2005 5.5 signedness rules.
+test('a signed operand of an unsigned comparison, shift or ?: is zero-extended (the expression type propagates to the operands)', () => {
+  const r = out(vinit(`
+    a = 42; b = 5'sd22 - 5'sd32; c = -4'sd1; s = 1;
+    $display("%b %b", a <= b, a <= (s ? b : c));
+    s8 = c >> 1; $display("%b", s8);
+    s8 = s ? c : 4'd0; $display("%b", s8);
+    s8 = c >>> 1; $display("%b", s8);`,
+  `reg [5:0] a; reg signed [4:0] b; reg signed [3:0] c; reg s; reg [7:0] s8;`));
+  // b = -10 (10110) and c = -1 (1111) become 6-bit 010110 = 22 and 001111 = 15 next to the unsigned a;
+  // c >> 1 in an 8-bit context: 11111111 >> 1 (c alone is signed: sign-extended to the target width);
+  // s ? c : 4'd0 is unsigned: 00001111; c >>> 1: c is signed, an arithmetic shift of 11111111
+  assert.deepEqual(r, ['0 0', '01111111', '00001111', '11111111']);
+});
+
+test('nested context-determined operands take the sign of the whole expression: u + (s1 + s2) adds zero-extended s1, s2', () => {
+  const r = out(vinit(`
+    u = 42; s1 = 5'sd22 - 5'sd32; s2 = -4'sd1;
+    y = u + (s1 + s2); $display("%0d", y);
+    sy = s1 + s2; $display("%0d", sy);
+    y = u + -s2; $display("%0d", y);
+    y = u + ~s2; $display("%0d", y);`,
+  `reg [5:0] u; reg signed [4:0] s1; reg signed [3:0] s2; reg [7:0] y; reg signed [7:0] sy;`));
+  // u + (22 + 15) = 79 (not 42 + (-10) + (-1) = 31); all signed: -11; -s2 at 8 unsigned bits:
+  // 0 - 00001111 = 241, + 42 = 283 -> 27; ~s2 at 8 bits: ~00001111 = 240, + 42 = 282 -> 26
+  assert.deepEqual(r, ['79', '-11', '27', '26']);
+});
+
+test('?: with a signed and an unsigned operand of the same width is unsigned', () => {
+  const r = out(vinit(`
+    s = 1; y = s ? $signed(1'b1) : 1'b0; $display("%b", y);
+    y = s ? $signed(1'b1) : 1'sb0; $display("%b", y);
+    y = s ? 2'sb11 : 2'b00; $display("%b", y);`,
+  `reg s; reg [4:0] y;`));
+  assert.deepEqual(r, ['00001', '11111', '00011']);
+});
+
+test('case: the expression and the items are extended to the widest, as signed only when all are signed', () => {
+  const r = out(vinit(`
+    c = -4'sd1;
+    case (c) 6'd15: $display("u15"); 6'sd63: $display("bad"); default: $display("none"); endcase
+    case (c) -6'sd1: $display("s-1"); default: $display("none"); endcase
+    n = 2'b00;
+    case (n) 3'b100: $display("bad"); 3'b000: $display("zero"); default: $display("none"); endcase`,
+  `reg signed [3:0] c; reg [1:0] n;`));
+  // with an unsigned item, c is zero-extended (001111 = 15); with only signed items, sign-extended;
+  // 3'b100 does not match a 2-bit 00 (the case expression is extended, the item not truncated)
+  assert.deepEqual(r, ['u15', 's-1', 'zero']);
+});
