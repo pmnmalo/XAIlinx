@@ -62,6 +62,8 @@ export function makeDb({ layout, lut, tiles, pads = {} }) {
 export function featureBits(type, feature) {
   if (!type) return undefined;
   const bits = type.feats.get(feature);
+  // the terminal tiles' PIPs only join wires at the edges of the chip: no bits
+  if (!bits && type.pipsWithoutBits && /->|=-/.test(feature)) return [];
   if (bits || !type.rename?.length) return bits;
   let f = feature;
   for (const [re, to] of type.rename) f = f.replace(re, to);

@@ -71,6 +71,11 @@ test('tile types share a switch box at an offset of frames and bits', () => {
   assert.deepEqual(featureBits(db.types.LIOIS, 'IOIS_Y0->OMUX0'), ['1,1']);
   assert.equal(featureBits(db.types.LIOIS, 'IOIS_X1->OMUX0'), undefined);
   assert.equal(featureBits(db.types.TIOIS, 'IOIS_X0->OMUX0'), undefined);   // no renaming there
+  // a type whose PIPs set no bits (the terminal tiles): any PIP is known, other features are not
+  const term = makeDb({ layout: {}, lut: {}, tiles: { types: { BTERM: { pipsWithoutBits: true, features: { 'X:Y:Z': ['1,1'] } } } } }).types.BTERM;
+  assert.deepEqual(featureBits(term, 'BTERM_S2BEG7->BTERM_N2MID7'), []);
+  assert.deepEqual(featureBits(term, 'X:Y:Z'), ['1,1']);
+  assert.equal(featureBits(term, 'SLICE0:USED'), undefined);
   // the type's own measurement first; the shared type is unchanged
   assert.deepEqual(db.types.TIOIS.feats.get('X0->OMUX0'), ['6,99']);
   assert.deepEqual(db.types.TIOIS.feats.get('OMUX0->E2BEG0'), ['7,17', '!8,18']);

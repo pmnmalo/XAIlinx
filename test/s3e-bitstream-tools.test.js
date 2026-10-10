@@ -46,6 +46,16 @@ test('measured database: the I/O, block-RAM and DCM tiles use the CLB switch box
   assert.deepEqual(featureBits(db.types.BIOIS, 'E2END6->IOIS_F1_B0'), db.types.CENTER_SMALL.feats.get('E2END6->F1_B0'));
 });
 
+test('measured database: the terminal tiles\' PIPs set no bits', () => {
+  const tiles = read('xc3s250e-tiles.json');
+  const term = Object.entries(tiles.types).filter(([t]) => /TERM/.test(t));
+  assert.ok(term.length > 20);
+  for (const [t, ty] of term) {
+    assert.equal(ty.pipsWithoutBits, true, t);
+    assert.ok(!Object.keys(ty.features).some(f => /->/.test(f)), t);
+  }
+});
+
 test('measured database: SLICEM instances, the constant sources and the carry outputs', () => {
   const f = read('xc3s250e-tiles.json').types.CENTER_SMALL.features;
   assert.deepEqual(f['SLICE0:SLICEM'], ['1,55', '1,57']);

@@ -45,6 +45,16 @@ if (process.argv[1] && process.argv[1].endsWith('share-sb.mjs')) {
       }
     }
   }
+  // the terminal tiles (…TERM…): their PIPs join the wires at the edges of the chip and set no bits
+  // (thousands of measurements without bits; the few with bits were bits of the I/O tile measured
+  // in the same frames)
+  let term = 0;
+  for (const [type, t] of Object.entries(db.types)) {
+    if (!/TERM/.test(type)) continue;
+    t.pipsWithoutBits = true;
+    for (const f of Object.keys(t.features)) if (/->|=-/.test(f)) { if (t.features[f].length) term++; delete t.features[f]; }
+  }
+  console.log(`terminal tiles: PIPs without bits (${term} measurements with bits dropped)`);
   console.log(`switch boxes shared: ${same} own features as the CLB's, ${empty} without bits dropped, ${conflict} different (kept)`);
   if (!check) fs.writeFileSync(file, JSON.stringify(db, null, 0).replace(/("[^"]+":\[[^\]]*\]),/g, '$1,\n'));
 }
