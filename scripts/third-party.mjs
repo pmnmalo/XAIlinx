@@ -40,6 +40,10 @@ function describe(d) {
   const url = (pkg.homepage || repo).replace(/^git\+/, '').replace(/^git:\/\//, 'https://').replace(/\.git$/, '').replace(/^github:/, 'https://github.com/') || `https://www.npmjs.com/package/${d.name}`;
   const file = fs.readdirSync(d.dir).find(f => /^(licen[cs]e|copying)(\.(md|txt|markdown))?$/i.test(f)) || fs.readdirSync(d.dir).find(f => /^licen[cs]e/i.test(f));
   let text = file ? fs.readFileSync(path.join(d.dir, file), 'utf8').replace(/\r\n/g, '\n').trim() : '';
+  // no licence file in the package: the text kept in scripts/licences/ (e.g. @yowasp/yosys: YoWASP,
+  // Yosys and ABC, which its WebAssembly build contains)
+  const kept = path.join(root, 'scripts', 'licences', `${d.name.replace('/', '__')}.txt`);
+  if (!text && fs.existsSync(kept)) text = fs.readFileSync(kept, 'utf8').replace(/\r\n/g, '\n').trim();
   if (!text) {   // no licence file: the License section of the README (e.g. cookie-signature)
     const readme = fs.readdirSync(d.dir).find(f => /^readme(\.(md|markdown|txt))?$/i.test(f));
     const m = readme && /^#+\s*licen[cs]e\b.*\n([\s\S]*?)(?=\n#+\s|(?![\s\S]))/im.exec(fs.readFileSync(path.join(d.dir, readme), 'utf8').replace(/\r\n/g, '\n'));

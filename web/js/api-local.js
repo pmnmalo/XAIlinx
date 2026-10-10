@@ -36,7 +36,7 @@ function writeFileSync(name, path, text) {
   path = cleanPath(path);
   pj.files[path] = text;
   const lang = langOf(path);
-  if ((lang === 'vhdl' || lang === 'verilog') && !pj.json.files.some(f => f.path === path)) {
+  if ((lang === 'vhdl' || lang === 'verilog') && !/^build\//.test(path) && !pj.json.files.some(f => f.path === path)) {   // not the generated files in build/
     const role = /^(sim|tb|test)\//.test(path) || /(^|\/)tb_|_tb\.|_tb$/.test(path) ? 'sim' : 'design';
     pj.json.files.push({ path, lang, role });
   }

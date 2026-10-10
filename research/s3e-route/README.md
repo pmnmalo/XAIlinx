@@ -11,7 +11,9 @@ Xilinx ISE 14.7, following the method in [docs/OPEN-TOOLCHAIN.md](../../docs/OPE
 | Script | What it does |
 |---|---|
 | `build-device.mjs` | Builds the graph cache from the full device report; prints sizes and load time |
-| `route.mjs` | Removes a design's PIPs, routes it, writes the XDL, checks it against the graph |
+| `route.mjs` | Removes a design's PIPs, routes it, writes the XDL, checks it against the graph (`--known`: only PIPs of known bits) |
+| `open-flow.mjs` | The fully open flow for a project: synthesis (Silinx + Yosys), pack, place, route on known PIPs, Silinx's bitgen |
+| `ise-open-check.sh` | Inside the ISE container, the oracle of the open flow: `xdl -xdl2ncd`, `drc`, `bitgen` (CRC on / off), `trce -a` |
 | `check.mjs` | Checks the routing of an XDL design (ISE's or Silinx's) against the graph |
 | `gen-controls.mjs` | Control designs: all PIPs removed, one antenna added, bidirectional PIPs flipped, rewritten unchanged |
 | `ise-check.sh` | Inside the ISE container: `xdl -xdl2ncd`, `drc`, `bitgen`, `trce` for each design |
@@ -130,13 +132,89 @@ give ISE's bitstream (0 frame bits differ, `cmpbit.mjs`), so the writer loses no
 0 warnings) and writing the bitstream (`bitgen -g StartUpClk:JtagClk`), both work on a Basys2
 (XC3S250E-CP132): the first bitstreams in which no ISE tool chose a cell, a site or a wire.
 
+## Fully open bitstreams (2026-10-10)
+
+**Result: blinky and lab11 go from their VHDL / Verilog sources to a `.bit` file with no Xilinx
+tool in the flow** — Silinx's front end + Yosys, Silinx's packer, placer, router and bitgen — and
+the bitstream is byte-identical to the one ISE's bitgen writes from the same routed XDL.
+
+```
+node research/s3e-route/open-flow.mjs examples/blinky out/blinky     # -> out/blinky/top.bit
+node research/s3e-route/open-flow.mjs ~/Silinx-projects/lab11 out/lab11
+```
+
+What it took, besides chaining the steps:
+
+- **Router restricted to known switches** (`routeDesign(design, device, knownRouting(db))`,
+  `core/fpga/bitgen.js`): a PIP may be used only if its feature `from->to` (wires in the direction
+  of the signal, so a bidirectional `BX0 =- BY1` is checked the way it is used) is in the database
+  for the tile's type (named as bitgen names it: `CLB` -> `CENTER_SMALL` / `CENTER_SMALL_BRK`…) and
+  the layout knows the tile. A feature with no bits counts only for dedicated wires (carry chain,
+  pin wires, clock spines, terminations), not for a switch into a general routing wire: the
+  database has 253 such empty entries in the I/O and corner tiles and at least one is wrong (below).
+  GND sources only on slices whose `USED` and `_GND_SOURCE:Y` are known (SLICEL positions 2 / 3);
+  VCC sources (VCC sites, no settings) only through allowed PIPs. A net that cannot be routed on
+  known PIPs fails, with its unreached sinks listed (`unreached`), never through an unknown switch.
+- **Carry chains:** the four carry PIPs of a CLB as the device names them are `COUT0->CIN2`,
+  `COUT1->CIN3`, `COUT2->COUT_N1`, `COUT3->COUT_N3`; none sets bits (the database had the first
+  three; `COUT2->COUT_N1` added, `measured/fix-9carry.json`: the Silinx-routed blinky's tiles whose
+  only unknown feature it was had no bit different from ISE's bitgen).
+- **Carry out read by logic** (blinky's comparators): the packer's `carryOut: 'xor'` brings it out
+  through one more chain stage, XOR with a LUT giving 0, and the X / Y output (FXOR / GXOR), instead
+  of the XB / YB pins (`XBUSED`, `XB->OMUX`, `COUT->YB` are not measured). Simulated against the
+  netlist in the unit tests; the default stays `'pin'`, as ISE does.
+- The placer reads its sites from the device cache (`deviceSites(device)`, same result as from the
+  204 MB report), so the flow needs only the cache.
+
+Checked with ISE as the oracle (`ise-open-check.sh`, one job at a time on an Intel Mac mini):
+
+| Design | Placement | Nets | PIPs | Unknown features | DRC | bitgen vs Silinx (CRC on / off) | trce (no constraint) |
+|---|---|---|---|---|---|---|---|
+| blinky | seed 1 (default) | 265 | 1627 | 0 | 0 errors, 0 warnings | byte-identical / byte-identical | 12.12 ns |
+| blinky | seeds 2, 3, 4 | 265 | | 0 | 0 / 0 | byte-identical / byte-identical | 13.30, 11.93, 12.22 ns |
+| lab11 | seed 1 (default) | 777 | 7773 | 0 | 0 errors, 0 warnings | byte-identical / byte-identical | clk 22.85 ns |
+| lab11 | seeds 3, 4 | 777 | | 0 | 0 / 0 | byte-identical / byte-identical | clk 24.02, 23.09 ns |
+| lab11 | seed 2, effort 3, timing 4 | 777 | 7770 | 0 | 0 / 0 | byte-identical / byte-identical | clk 20.57 ns |
+
+(blinky's own constraint is 20 ns.) The restriction costs little: lab11's default placement routed
+on all PIPs takes 7764 PIPs and 23.86 ns (it is the one routed earlier and run on the board), on
+known PIPs 7773 PIPs and 22.85 ns. Before the restriction, the same designs used 31 (blinky) / 36
+(lab11) features the database does not know and differed from ISE's bitgen in 39 / 66 bits.
+
+A first run of the slower lab11 placement (seed 2, effort 3, timing 4) still differed in 4 bits
+with 0 unknown features: it used `W6END4->E2BEG4` and `LH6->E6BEG0` of a left I/O tile, which the
+database lists with no bits, while ISE sets 17,25 17,26 for the first (the second: 18,59 and one bit
+at frame offset 19). Hence the rule above on empty switches into general wires.
+
+The open bitstreams for the board: `~/Silinx-projects/open-flow/blinky-open.bit`,
+`lab11-open.bit` (default placement) and `lab11-open-fast.bit` (seed 2, effort 3, timing 4).
+
+Still missing for every placement to route (for the measurement of the database):
+
+- **Clock pins:** only 13 of the 32 `GCLKk -> CLKn` switches of a CLB are known (`GCLK4` reaches
+  all four slices; missing: GCLK0->CLK2, GCLK1->CLK0/2/3, GCLK2->CLK0/1/3, GCLK3->CLK1/2/3,
+  GCLK5->CLK0/2/3, GCLK6->CLK0/1/3, GCLK7->CLK1/2/3). A second clock on another line fails when a
+  flip-flop of it lands in a slice its line cannot reach with known switches: lab11 with seed 2, and
+  with seed 1 effort 3 timing 4 (`bit_ready -> …CLK`), fail this way.
+- XB / YB -> OMUX (only `YB1->OMUX0` known), `XBUSED` / `YBUSED`, `COUTk->YBk` route-throughs (only
+  `COUT1->YB1`): avoided by `carryOut: 'xor'`, needed for a carry chain read in the middle.
+- The 253 empty switches into general wires of the I/O and corner tiles (BIOIS, LIOIS*, RIOIS*,
+  TIOIS, LIBUFS*, RIBUFS*, TIBUFS, BIBUFS, LL / LR / UL / UR), refused by the router until measured.
+- `VCC_PINWIRE->BX0` (BX1, BX3 known), `SLICE0:_GND_SOURCE:Y` (SLICEM GND sources), long lines and
+  hexes through I/O, block RAM and DCM tiles that the earlier routes used.
+- `measured/learn-7carry.json` lists carry PIPs the device does not have (`COUT0->CIN0`,
+  `COUT1->CIN1`, `COUT0->COUT_N0`, `COUT1->COUT_N1`, `COUT2->COUT_N2`); harmless, never used.
+
 ## Open problems
 
 - Timing is not considered: the router minimises wire count and congestion, not delay. It met
   blinky's 20 ns constraint with a period close to ISE's; critical-path-aware costs (PathFinder's
   criticality term) are the next step.
-- GND / VCC sources: the made-up `XDL_DUMMY` source is understood by `xdl -xdl2ncd`; the bitstream
-  writer will have to program what ISE programs for it (the unused slice's G LUT and Y output).
+- GND / VCC sources: the made-up `XDL_DUMMY` source is understood by `xdl -xdl2ncd`, and Silinx's
+  bitgen programs what ISE programs for it on SLICEL positions (byte-identical above); SLICEM
+  positions as GND sources are not measured (`SLICE0:_GND_SOURCE:Y`).
+- The placer does not know which clock lines reach which slices with known switches (above): it
+  could keep each clock's flip-flops to reachable slices, or choose the global buffer by it.
 - Route-throughs are used only out of the source site (COUT -> YB). LUT route-throughs (to reach
   a pin otherwise unreachable) are never used.
 - Only the XC3S250E has been checked; other Spartan-3E parts need their own report (same code).

@@ -534,6 +534,7 @@ function selectionProcesses() {
       { id: 'check', label: 'Check Syntax', ico: 'process', run: () => checkSyntax(mod) },
       { id: 'postsynth', label: EXTRA_STEPS.postsynth, ico: 'process', run: () => generateSimModel(mod, 'postsynth') },
     ] },
+    { id: 'synth-open', label: SYNTH_OPEN, ico: 'process', run: () => synthOpen(mod) },
     { id: 'impl', label: 'Implement Design', ico: 'process', run: () => runImpl(mod, ['synth', 'translate', 'map', 'par']), children: [
       { id: 'translate', label: 'Translate', ico: 'process', run: () => runImpl(mod, ['synth', 'translate']), children: [
         { id: 'posttrans', label: EXTRA_STEPS.posttrans, ico: 'process', run: () => generateSimModel(mod, 'posttrans') },
@@ -1007,6 +1008,59 @@ async function runImplInner(mod, steps, opts, pjName) {
 }
 
 // ---- optional ISE processes: simulation models, timing, power, pins
+// Synthesize - Yosys (open): the open synthesis in the browser, without Xilinx ISE (core/synth-open.js):
+// Silinx's front end writes the design as one flat module, Yosys compiled to WebAssembly maps it
+// onto the cells of the device family in a Web Worker; the netlist goes to build/open/
+const SYNTH_OPEN = 'Synthesize - Yosys (open)';
+let synthOpenRunning = false;
+async function synthOpen(mod) {
+  if (!S.project || !mod) return;
+  if (api.standalone) { alertDlg(SYNTH_OPEN, 'The open synthesis needs the full Silinx application (it loads Yosys, compiled to WebAssembly, from it).'); return; }
+  if (synthOpenRunning) return;
+  synthOpenRunning = true;
+  try {
+    if (!await checkSyntax(mod)) {
+      setStatus('synth-open', 'err');
+      log(`Process "${SYNTH_OPEN}" stopped: Check Syntax found errors (see the Errors tab).`, 'err');
+      return;
+    }
+    S.diags = S.diags.filter(d => d.source !== 'console');
+    setStatus('synth-open', 'running');
+    log(`\nStarted : "${SYNTH_OPEN}".\n`, 'hdr');
+    const family = S.project.device?.family || 'spartan3e';
+    const srcs = S.sources.filter(s => (s.lang === 'vhdl' || s.lang === 'verilog') && inView(s.role, false));
+    const { primitiveSources } = await import('/core/unisim.js');
+    const design = elaborate(compile([...primitiveSources(srcs), ...srcs]), mod);
+    const { synthesizeOpen } = await import('/core/synth-open.js');
+    const { yosysBrowser } = await import('./yosys-client.js');
+    log(`Writing <${mod}> as one flat module for Yosys; Yosys (WebAssembly) maps it onto the ${family} cells.`);
+    const t0 = performance.now();
+    let shown = -1;
+    const run = (args, files, onLine) => yosysBrowser(args, files, onLine, p => { if (p - shown >= 0.1 || p === 1) { shown = p; status(`Loading Yosys… ${Math.round(p * 100)}%`); } });
+    const res = await synthesizeOpen(design, { family, run, onLine: logLine });
+    status(`Saving the netlist of ${mod}…`);
+    for (const [name, text] of Object.entries(res.files)) await api.writeFile(S.project.name, `build/open/${name}`, text);
+    const u = res.util;
+    log(`\nDevice utilization (open synthesis, ${family}):`);
+    for (const [k, label] of [['luts', 'LUTs'], ['flipFlops', 'Flip-flops'], ['latches', 'Latches'], ['muxes', 'F5-F8 multiplexers'], ['carry', 'Carry logic'],
+      ['shiftRegisters', 'Shift registers'], ['distributedRam', 'Distributed RAM'], ['blockRam', 'Block RAMs'], ['multipliers', 'Multipliers'],
+      ['clockBuffers', 'Global clock buffers'], ['dcms', 'DCMs'], ['ios', 'I/O buffers']]) if (u[k]) log(`  ${label}: ${u[k]}`);
+    log(`  Cells: ${u.cells}`);
+    log(`Netlist: build/open/${res.top}.json (and ${res.top}_yosys.v, ${res.top}_stat.txt) in ${((performance.now() - t0) / 1000).toFixed(1)} s.`);
+    const nw = res.warnings.length;
+    log(`\nProcess "${SYNTH_OPEN}" completed successfully${nw ? ` with ${nw} warning(s)` : ''}`, 'ok');
+    setStatus('synth-open', nw ? 'warn' : 'ok');
+  } catch (e) {
+    for (const l of e.lines || []) logLine(l);
+    log(`ERROR: ${e.message}`, 'err');
+    log(`\nProcess "${SYNTH_OPEN}" failed`, 'err');
+    setStatus('synth-open', 'err');
+  } finally {
+    synthOpenRunning = false;
+    status('Ready');
+  }
+}
+
 const FLOW_UP_TO = { synth: ['synth'], translate: ['synth', 'translate'], map: ['synth', 'translate', 'map'], par: ['synth', 'translate', 'map', 'par'] };
 async function generateSimModel(mod, step) {
   const stage = { postsynth: 'synth', posttrans: 'translate', postmap: 'map', postpar: 'par' }[step];
@@ -1977,12 +2031,14 @@ async function syncHdlFromFsm(fsmPath, model) {
     return;
   }
   const g = generateFsm(m, /\.v$/i.test(target) ? 'verilog' : 'vhdl', { source: fsmPath.split('/').pop() });
-  if (S.outOfSync[target]) { delete S.outOfSync[target]; refreshSyncBanner(target); refreshFsmLink(fsmPath); }
+  // back in sync once the HDL is written (not before: the link would say so while the file is old)
+  const inSync = () => { if (S.outOfSync[target]) { delete S.outOfSync[target]; refreshSyncBanner(target); refreshFsmLink(fsmPath); } };
   const cur = S.sources.find(x => x.path === target)?.text;
-  if (cur === g.code) return;
+  if (cur === g.code) return inSync();
   S.syncing = true;
   try {
     await api.writeFile(S.project.name, target, g.code);
+    inSync();
     const src = S.sources.find(x => x.path === target); if (src) src.text = g.code;
     refreshOpenEditor(target, g.code);
     compileProject(); renderHierarchy(); markStale();

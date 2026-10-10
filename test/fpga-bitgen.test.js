@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { parseXdl } from '../core/xdl.js';
-import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, shiftBit, featureBits } from '../core/fpga/bitgen.js';
+import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, shiftBit, featureBits, knownRouting } from '../core/fpga/bitgen.js';
 import { XC3S250E, readBit, getBit, diffFrames } from '../core/fpga/bitstream.js';
 
 const FW = XC3S250E.frameWords;
@@ -194,6 +194,39 @@ net "n" ,
   ;`);
   const { unknown } = frameData(d, db);
   assert.deepEqual(unknown, []);
+});
+
+test('measured database: the four carry PIPs of a CLB (COUT2 -> COUT_N1 included) set no bits', () => {
+  // as the device names them (COUT0 -> CIN2, COUT1 -> CIN3 inside the CLB; COUT2 -> COUT_N1, COUT3 ->
+  // COUT_N3 to the CLB above); COUT2 -> COUT_N1 was missing (Silinx-routed blinky: tiles whose only
+  // unknown feature it was had no differing bit with ISE's bitgen)
+  const db = measured();
+  for (const p of ['COUT0->CIN2', 'COUT1->CIN3', 'COUT2->COUT_N1', 'COUT3->COUT_N3']) assert.deepEqual(db.types.CENTER_SMALL.feats.get(p), [], p);
+  assert.equal(knownRouting(db).allowPip('CLB_X15Y9', 'COUT2', 'COUT_N1'), true);
+});
+
+test('knownRouting: the PIPs and GND sources a router may use so that every feature has its bits', () => {
+  const db = makeDb({
+    layout: { brkRows: [9], cols: { 1: 10 }, rows: { 1: 100 } }, lut: {},
+    tiles: { types: { CENTER_SMALL: { features: {
+      'X0->OMUX0': ['6,28'], 'BY3->BX1': [], 'COUT2->COUT_N1': [], 'W6END4->E2BEG4': [], 'E2MID3->LH6': [],
+      'SLICE2:USED': [], 'SLICE2:_GND_SOURCE:Y': [], 'SLICE0:USED': ['1,50'],
+    } } } },
+  });
+  const { allowPip, allowConstSource } = knownRouting(db);
+  assert.equal(allowPip('CLB_X1Y1', 'X0', 'OMUX0'), true);
+  assert.equal(allowPip('CLB_X1Y1', 'X0', 'OMUX1'), false);                 // not in the database
+  assert.equal(allowPip('CLB_X2Y1', 'X0', 'OMUX0'), false);                 // the layout does not know the tile
+  assert.equal(allowPip('CLB_X1Y9', 'X0', 'OMUX0'), false);                 // CENTER_SMALL_BRK: not in this database
+  assert.equal(allowPip('CLB_X1Y1', 'BY3', 'BX1'), true);                   // no bits, a dedicated wire
+  assert.equal(allowPip('CLB_X1Y1', 'COUT2', 'COUT_N1'), true);
+  assert.equal(allowPip('CLB_X1Y1', 'W6END4', 'E2BEG4'), false);            // no bits into a general wire: not trusted
+  assert.equal(allowPip('CLB_X1Y1', 'E2MID3', 'LH6'), false);
+  assert.equal(allowPip('CLB_X1Y1', 'OMUX0', 'X0'), false);                 // the direction matters
+  // GND sources: slices whose USED and _GND_SOURCE:Y are known; VCC sites always
+  assert.equal(allowConstSource('gnd', { name: 'SLICE_X3Y2', tileName: 'CLB_X1Y1', type: 'SLICEL' }), true);    // SLICE2
+  assert.equal(allowConstSource('gnd', { name: 'SLICE_X2Y2', tileName: 'CLB_X1Y1', type: 'SLICEM' }), false);   // SLICE0: no _GND_SOURCE:Y
+  assert.equal(allowConstSource('vcc', { name: 'VCC_X1Y1', tileName: 'CLB_X1Y1', type: 'VCC' }), true);
 });
 
 test('padsFromDevice: the bonded I/O sites of the device, by their index among the I/O sites of the tile', () => {

@@ -42,6 +42,28 @@ the "What's new" text of its GitHub release.
   the file is byte-identical to ISE's bitgen (CRC on and off). Designs placed and routed by Silinx
   still use a few routing switches not measured yet. The package's pads come from the device
   description built from the user's own ISE, never from the repository.
+- A test that the repository holds no data that must not be published
+  (`scripts/check-private-data.mjs`, run by `npm test` on every tracked file; `--history` also checks
+  the whole git history): e-mail addresses, home folders with a user name, logins, computer names
+  and network addresses, passwords, keys and access tokens, and Xilinx files (ISE's outputs,
+  licences, device reports).
+- **Synthesize - Yosys (open)**: a new process that synthesizes the design in the browser, without
+  Xilinx ISE: Silinx's front end writes the design as one flat module and Yosys, compiled to
+  WebAssembly (YoWASP), maps it onto the cells of the device family in a Web Worker. The console
+  shows Yosys's messages and the utilization (LUTs, flip-flops, multiplexers, carry logic, clock
+  buffers, I/O…); the netlist is saved in `build/open/` (JSON and Verilog). Generated HDL files in
+  `build/` are no longer added to the project's sources. (The app's download grows by the Yosys
+  WebAssembly module, about 75 MB unpacked.)
+- **Fully open bitstreams** for the Spartan-3E XC3S250E: the router can keep to the routing switches
+  whose bits the database knows, and the packer can bring a carry out through an XOR stage instead
+  of the unmeasured XB / YB pins, so blinky and lab11 go from VHDL / Verilog to a `.bit` file with no
+  Xilinx tool at all (`research/s3e-route/open-flow.mjs`). Checked against ISE: 0 DRC errors and a
+  bitstream byte-identical to ISE's bitgen for the same routed design (8 placements, CRC on and off).
+- Tests with Xilinx ISE on another machine (for the developers, e.g. an Intel Mac where ISE runs
+  natively): `SILINX_ISE_HOST=user@host` runs the real ISE flow tests there (79 s instead of ~15 min
+  emulated), and `npm run check:open-flow` checks the fully open flow against ISE (design rule check,
+  byte-identical bitstreams). The open flow now synthesizes with the WebAssembly Yosys (nothing to
+  install).
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - How the open toolchain for the Spartan-3E is being developed: `docs/OPEN-TOOLCHAIN.md`, and the
   first experiments in `research/s3e-bitstream`.

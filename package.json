@@ -11,12 +11,14 @@
     "test": "node --test test/*.test.js",
     "test:ui": "node --test test/ui/*.test.js",
     "test:ise": "SILINX_ISE_TESTS=1 node --test test/ise/*.test.js",
+    "check:open-flow": "node scripts/check-open-flow.mjs",
     "test:webkit": "node --test test/webkit/*.test.js",
     "build:standalone": "node scripts/build-standalone.mjs",
     "version": "node scripts/sync-version.mjs && git add core/version.js"
   },
   "license": "AGPL-3.0-only",
   "dependencies": {
+    "@yowasp/yosys": "0.68.1207",
     "codemirror": "^5.65.21",
     "elkjs": "^0.9.3",
     "express": "^4.22.3"

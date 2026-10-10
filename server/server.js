@@ -35,6 +35,8 @@ export async function createApp({ host = '127.0.0.1' } = {}) {
   app.use('/core', express.static(path.join(ROOT, 'core')));
   app.use('/vendor/elk', express.static(path.join(ROOT, 'node_modules/elkjs/lib')));
   app.use('/vendor/codemirror', express.static(path.join(ROOT, 'node_modules/codemirror')));
+  // Yosys compiled to WebAssembly (YoWASP): the open synthesis runs in the browser (web/js/yosys-worker.js)
+  app.use('/vendor/yowasp-yosys', express.static(path.join(ROOT, 'node_modules/@yowasp/yosys')));
 
   const api = express.Router();
   api.get('/projects', wrap(() => P.listProjects()));

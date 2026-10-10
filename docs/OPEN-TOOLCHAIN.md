@@ -25,8 +25,8 @@ or to get around any protection.
 
 | Stage | Tool | Origin |
 |---|---|---|
-| VHDL front end | GHDL (GPL-2.0) | independent open-source project |
-| Synthesis | Yosys `synth_xilinx -family xc3se` (ISC) | independent open-source project |
+| VHDL / Verilog front end | Silinx (AGPL-3.0): the elaborated design as one flat module | written for Silinx |
+| Synthesis | Yosys `synth_xilinx -family xc3se` (ISC), compiled to WebAssembly by YoWASP: it runs in the browser | independent open-source projects |
 | Place and route | Silinx (AGPL-3.0) | written for Silinx |
 | Bitstream | Silinx (AGPL-3.0), from the bit database below | written for Silinx |
 

@@ -418,6 +418,12 @@ export class Device {
     const tp = this.templates[this.tileTemplate[k]], b = this.tileWireBase[k];
     return [this.nodeOf[b + tp.from[i]], this.nodeOf[b + tp.to[i]]];
   }
+  /** The wire names of PIP i of tile k in the direction of the signal: [from, to] (for a bidirectional
+   *  PIP: the orientation of this edge, not the XDL text order). */
+  pipWires(k, i) {
+    const tp = this.templates[this.tileTemplate[k]];
+    return [this.names[tp.wires[tp.from[i]]], this.names[tp.wires[tp.to[i]]]];
+  }
   /** Is PIP i of tile k bidirectional? */
   pipIsBidi(k, i) { return !!(this.templates[this.tileTemplate[k]].flags[i] & PIP_BIDI); }
   /** Index of the PIP written "from <dir> to" in tile k (wire names, XDL text order), or -1. */

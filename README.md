@@ -215,6 +215,9 @@ In short, from the [latest release](https://github.com/pmnmalo/Silinx-ISE/releas
   Silinx; projects are folders in `Silinx-projects` in your user folder.
 - **Synthesis needs Xilinx ISE 14.7** (free WebPACK): build your own Docker image with
   **`silinx-ise-docker-kit-<version>.zip`** (see [below](#synthesis-and-bitstreams-xilinx-ise-147)).
+  Without ISE, *Synthesize - Yosys (open)* synthesizes the design in the browser with Yosys compiled
+  to WebAssembly (a netlist and its utilization; the open place and route and bitstream for the
+  Spartan-3E are still being developed: [docs/OPEN-TOOLCHAIN.md](docs/OPEN-TOOLCHAIN.md)).
 
 ## For developers
 
@@ -235,6 +238,9 @@ node bin/silinx-ise.js sim   <projectDir> --time 2000 --vcd out.vcd   # simulate
 node bin/silinx-ise.js ucf   <projectDir> --board basys2              # constraints from a board's pin table
 node bin/silinx-ise.js toolchain [--docker xilinx/ise:14.7]          # show / set the ISE toolchain
 npm test                                                         # test suite
+SILINX_ISE_TESTS=1 npm run test:ise                              # the real ISE flow (Docker image; SILINX_ISE_HOST=user@host: on another machine)
+SILINX_ISE_HOST=user@host npm run check:open-flow [projects…]   # the open flow vs ISE: DRC, byte-identical bitstreams
+node scripts/check-private-data.mjs [--history]                 # no personal data, secrets or Xilinx files (also run by npm test)
 npm run test:ui                                                  # UI tests (headless Chrome), incl. memory leaks
 npx playwright install webkit && npm run test:webkit             # memory in WebKit (Safari's engine)
 ```

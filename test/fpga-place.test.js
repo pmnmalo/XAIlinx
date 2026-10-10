@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseXdlrc, parseXdl } from '../core/xdl.js';
+import { packDevice, loadDevice } from '../core/fpga/device.js';
 import { readYosysJson } from '../core/fpga/netlist.js';
 import { pack } from '../core/fpga/pack.js';
 import { deviceSites, place, placedXdl, PlaceError, rng } from '../core/fpga/place.js';
@@ -18,6 +19,15 @@ const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 
 const load = n => readYosysJson(fs.readFileSync(path.join(FIX, `${n}.json`), 'utf8'));
 const dev = deviceSites(parseXdlrc(fs.readFileSync(path.join(FIX, 'place-device.xdlrc'), 'utf8')));
 const xy = s => { const m = /^SLICE_X(\d+)Y(\d+)$/.exec(s); return m ? [+m[1], +m[2]] : null; };
+
+test('the device from the routing graph (core/fpga/device.js) gives the same sites as from the report', () => {
+  // (the router's small device: the placer's has no connections between tiles)
+  const text = fs.readFileSync(path.join(FIX, 'route-device.xdlrc'), 'utf8');
+  const fromReport = deviceSites(parseXdlrc(text)), fromGraph = deviceSites(loadDevice(packDevice(text)));
+  const ser = x => JSON.stringify({ ...x, slices: [...x.slices], pads: [...x.pads] });
+  assert.ok(fromReport.slices.size > 0 && fromReport.pads.size > 0 && fromReport.bufgmux.length > 0);
+  assert.equal(ser(fromGraph), ser(fromReport));
+});
 
 test('the device: slices with positions, bonded pads, clock buffers', () => {
   assert.equal(dev.slices.size, 140);   // 6 x 6 CLBs, one missing

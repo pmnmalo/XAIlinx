@@ -185,13 +185,14 @@ export async function writeFile(name, rel, text) {
     await fs.writeFile(tmp, text);
     await fs.rename(tmp, full);
   } catch (e) { await fs.rm(tmp, { force: true }).catch(() => {}); throw e; }
-  // Register HDL files automatically; a file written again is back in the project (not excluded).
+  // Register HDL files automatically (not the generated ones in build/, e.g. the netlists of the open
+  // synthesis); a file written again is back in the project (not excluded).
   const lang = langOf(rel);
   {
     const pj0 = await readProject(name);
     if ((pj0.excluded || []).includes(rel)) await updateProject(name, pj => { pj.excluded = (pj.excluded || []).filter(f => f !== rel); });
   }
-  if (lang === 'verilog' || lang === 'vhdl') {
+  if ((lang === 'verilog' || lang === 'vhdl') && !/^build\//.test(rel)) {
     await withProjectLock(name, async () => {
       const pj = await readProject(name);
       if (!pj.files.some(f => f.path === rel)) {

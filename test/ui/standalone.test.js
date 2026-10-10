@@ -74,6 +74,12 @@ uiTest('standalone edition (dist build): loads from file://, creates a project f
   await page.menu('Process', 'Implement Top Module');
   await page.waitConsole(/This is the standalone \(single HTML file\) edition of Silinx\./, { timeout: 15000 });
   await page.waitFor(() => !window.Silinx.busy);
+  // so does the open synthesis (Yosys in WebAssembly is loaded from the application)
+  await page.treeRow('#procs', 'Synthesize - Yosys (open)', { dbl: true, exact: true });
+  await page.waitDialog('Synthesize - Yosys (open)');
+  assert.match(await page.eval(() => document.querySelector('.dlg-overlay').innerText), /needs the full Silinx application/);
+  await page.dialogButton('OK');
+  await page.waitNoDialog();
   // edits are kept across a reload (localStorage)
   await page.eval(() => window.SilinxApp.openFile('src/top.vhd'));
   await page.waitFor(() => window.Silinx.active?.id === 'file:src/top.vhd' && window.Silinx.active.editor);
