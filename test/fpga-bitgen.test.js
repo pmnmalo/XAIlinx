@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { parseXdl } from '../core/xdl.js';
-import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, shiftBit } from '../core/fpga/bitgen.js';
+import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, shiftBit, featureBits } from '../core/fpga/bitgen.js';
 import { XC3S250E, readBit, getBit, diffFrames } from '../core/fpga/bitstream.js';
 
 const FW = XC3S250E.frameWords;
@@ -60,12 +60,17 @@ test('tile types share a switch box at an offset of frames and bits', () => {
     lut: {},
     tiles: { types: {
       CENTER_SMALL: { features: { 'X0->OMUX0': ['6,28'], 'OMUX0->E2BEG0': ['7,1', '!8,2'] } },
-      LIOIS: { sameAs: 'CENTER_SMALL', shift: [2, 0], features: { 'IOIS_Y0->OMUX0': ['1,1'] } },
+      LIOIS: { sameAs: 'CENTER_SMALL', shift: [2, 0], rename: [['IOIS_VCC_WIRE', 'VCC_PINWIRE'], ['IOIS_', '']], features: { 'IOIS_Y0->OMUX0': ['1,1'] } },
       TIOIS: { sameAs: 'CENTER_SMALL', shift: [0, 16], features: { 'X0->OMUX0': ['6,99'] } },
     } },
   });
   assert.deepEqual(db.types.LIOIS.feats.get('OMUX0->E2BEG0'), ['9,1', '!10,2']);
   assert.deepEqual(db.types.LIOIS.feats.get('IOIS_Y0->OMUX0'), ['1,1']);
+  // the type's own wire names: IOIS_X0 is the CLB's X0 (own measurements first)
+  assert.deepEqual(featureBits(db.types.LIOIS, 'IOIS_X0->OMUX0'), ['8,28']);
+  assert.deepEqual(featureBits(db.types.LIOIS, 'IOIS_Y0->OMUX0'), ['1,1']);
+  assert.equal(featureBits(db.types.LIOIS, 'IOIS_X1->OMUX0'), undefined);
+  assert.equal(featureBits(db.types.TIOIS, 'IOIS_X0->OMUX0'), undefined);   // no renaming there
   // the type's own measurement first; the shared type is unchanged
   assert.deepEqual(db.types.TIOIS.feats.get('X0->OMUX0'), ['6,99']);
   assert.deepEqual(db.types.TIOIS.feats.get('OMUX0->E2BEG0'), ['7,17', '!8,18']);

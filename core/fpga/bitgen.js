@@ -49,9 +49,23 @@ export function makeDb({ layout, lut, tiles, pads = {} }) {
     if (!src) continue;
     const [sf, sb] = t.shift || [0, 0];
     const shifted = sf || sb ? [...src].map(([f, bits]) => [f, bits.map(s => shiftBit(s, sf, sb))]) : [...src];
+    t.shared = new Map(shifted);
     t.feats = new Map([...shifted, ...t.feats]);
+    // the wires of the type's own sites may have other names than the shared type's (the I/O
+    // tile's IOIS_X0, IOIS_F1_B0… are the CLB's X0, F1_B0…): `rename: [[regexp, replacement], …]`
+    t.rename = (t.rename || []).map(([re, to]) => [new RegExp(re, 'g'), to]);
   }
   return { layout, lut, tiles, types, pads, padFeats: tiles.padFeatures || {} };
+}
+
+/** The bits of a feature of a tile type (undefined when the database does not know it). */
+export function featureBits(type, feature) {
+  if (!type) return undefined;
+  const bits = type.feats.get(feature);
+  if (bits || !type.rename?.length) return bits;
+  let f = feature;
+  for (const [re, to] of type.rename) f = f.replace(re, to);
+  return f === feature ? undefined : type.shared.get(f);
 }
 
 /** The type and the X / Y of a tile from its name (CLB_X3Y5 -> CENTER_SMALL… / 3 / 5). */
@@ -193,7 +207,7 @@ export function frameData(design, db, device = XC3S250E) {
     const t = tileOf(tile, db);
     const base = t && tileBase(t, db);
     const type = t && db.types[t.type];
-    const bits = type && type.feats.get(feature);
+    const bits = featureBits(type, feature);
     if (!base || !bits) {
       const k = `${tile} ${feature}`;
       if (!seen.has(k)) { seen.add(k); unknown.push({ tile, feature }); }

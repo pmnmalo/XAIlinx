@@ -17,11 +17,14 @@ const skipFile = opt('--skip', null), radius = +opt('--radius', '3');
 // --pins: the slice pins the nets may use, a list of: lut (X, Y -> F1-4, G1-4, the default), ff (also
 // the flip-flop outputs XQ, YQ as sources and BX, BY, CE, SR as sinks; 'all' = lut,ff), carry (the
 // carry outputs XB, YB as sources), clk (CLK as a sink), vcc (the tiles' VCC sites as sources: nets of
-// the constant 1)
+// the constant 1), bram (the block RAMs' and multipliers' data, address and control pins)
 const pinSets = new Set(opt('--pins', 'lut').replace('all', 'lut,ff').split(','));
 const allPins = pinSets.has('ff');
 // --long: the long lines (LH, LV) may be used wherever they go
 const long = opt('--long', '0') === '1';
+// --nosink 1: the PIP under test ends its net (no sink: bitgen programs every PIP of a net with pins,
+// also one that leads nowhere), for PIPs into wires the router cannot take to a slice
+const nosink = opt('--nosink', '0') === '1';
 // --want file.json: { TYPE: ['from->to', …] } only these PIPs (e.g. those of designs to reproduce)
 const wantFile = opt('--want', null);
 const want = wantFile ? new Map(Object.entries(JSON.parse(fs.readFileSync(wantFile, 'utf8'))).map(([t, l]) => [t, new Set(l)])) : null;
@@ -52,6 +55,14 @@ const pipText = e => { const i = e >= 0 ? e : -e - 1; const p = g.pip(i); return
 const srcPin = new Map(), sinkPin = new Map();   // node -> { site, type, tile, pin }
 for (const [t, tile] of g.tiles.entries()) for (const s of tile.sites) {
   if (s.type === 'VCC' && pinSets.has('vcc') && s.pins.VCCOUT) srcPin.set(g.node(t, s.pins.VCCOUT.wire), { site: s.name, type: 'VCC', tile: tile.name, t, pin: 'VCCOUT' });
+  if (pinSets.has('bram') && (s.type === 'RAMB16' || s.type === 'MULT18X18SIO')) {
+    for (const [pin, { dir, wire }] of Object.entries(s.pins)) {
+      if (/^BC(IN|OUT)/.test(pin)) continue;   // the multipliers' cascade
+      const info = { site: s.name, type: s.type, tile: tile.name, t, pin };
+      (dir === 'output' ? srcPin : sinkPin).set(g.node(t, wire), info);
+    }
+    continue;
+  }
   if (s.type !== 'SLICEL' && s.type !== 'SLICEM') continue;
   for (const [pin, { wire }] of Object.entries(s.pins)) {
     const n = g.node(t, wire);
@@ -114,16 +125,16 @@ for (const t of tiles) {
     const back = search(a, false, t);
     if (!back) { used.delete(a); used.delete(b); continue; }
     for (const n of nodesOf(back, [])) used.add(n);
-    const fwd = search(b, true, t);
+    const fwd = nosink ? [] : search(b, true, t);
     if (!fwd) { for (const n of nodesOf(back, [])) used.delete(n); used.delete(a); used.delete(b); continue; }
     for (const n of nodesOf(fwd, [])) used.add(n);
     const srcNode = back.length ? pipEnds(back[0])[0] : a;
     const sinkNode = fwd.length ? pipEnds(fwd[fwd.length - 1])[1] : b;
-    const src = srcPin.get(srcNode), sink = sinkPin.get(sinkNode);
+    const src = srcPin.get(srcNode), sink = nosink ? null : sinkPin.get(sinkNode);
     used.add(srcNode); used.add(sinkNode);
-    for (const p of [src, sink]) if (!sliceUse.has(p.site)) sliceUse.set(p.site, { ...p, out: new Set(), in: new Set() });
+    for (const p of [src, sink]) if (p && !sliceUse.has(p.site)) sliceUse.set(p.site, { ...p, out: new Set(), in: new Set() });
     sliceUse.get(src.site).out.add(src.pin);
-    sliceUse.get(sink.site).in.add(sink.pin);
+    if (sink) sliceUse.get(sink.site).in.add(sink.pin);
     const p = g.pip(i);
     nets.push({ name: `n${nets.length}`, src, sink, pips: [...back, i, ...fwd], test: i });
     (key[g.tiles[t].name] ||= []).push({ from: p.from, dir: '->', to: p.to, line: nets.length - 1 });
@@ -140,6 +151,11 @@ for (const ps of Object.values(key)) for (const p of ps) testCode.set(p.line, p.
 // the design
 const inst = s => {
   const u = sliceUse.get(s);
+  // a block RAM (1024 x 18 on both ports) or a multiplier (no registers), with the inverters of the
+  // control pins used
+  const inv = pins => [...u.in].filter(p => pins.test(p)).map(p => `${p.replace(/\d+$/, '')}INV::${p.replace(/\d+$/, '')}`);
+  if (u.type === 'RAMB16') return `inst "${s}" "RAMB16",placed ${u.tile} ${s} ,\n  cfg " RAMB16B:${s}_r: PORTA_ATTR::1024X18 PORTB_ATTR::1024X18 WRITEMODEA::WRITE_FIRST WRITEMODEB::WRITE_FIRST ${[...new Set(inv(/^(CLK|EN|WE|SSR)[AB]\d*$/))].join(' ')} "\n  ;`;
+  if (u.type === 'MULT18X18SIO') return `inst "${s}" "MULT18X18SIO",placed ${u.tile} ${s} ,\n  cfg " MULT18X18SIO:${s}_m: AREG::0 BREG::0 PREG::0 B_INPUT::DIRECT "\n  ;`;
   if (u.type === 'VCC') return `inst "${s}" "VCC",placed ${u.tile} ${s} ,\n  cfg " _NO_USER_LOGIC:: _VCC_SOURCE::VCCOUT "\n  ;`;
   const cfg = ['F:' + s + '_f:#LUT:D=(A1*A2*A3*A4)', 'G:' + s + '_g:#LUT:D=(A1*A2*A3*A4)'];
   if (u.out.has('X')) cfg.push('FXMUX::F', 'XUSED::0');
@@ -166,7 +182,7 @@ const write = (file, v) => {
   nets.forEach((n, j) => {
     const drop = v !== null && testCode.get(j).includes(v);
     const pips = n.pips.filter(e => !(drop && e === n.test)).map(e => `  ${pipText(e)} ,`);
-    txt.push(`net "${n.name}"${n.src.type === 'VCC' ? ' vcc' : ''} ,\n  outpin "${n.src.site}" ${n.src.pin} ,\n  inpin "${n.sink.site}" ${n.sink.pin} ,\n${pips.join('\n')}\n  ;`);
+    txt.push(`net "${n.name}"${n.src.type === 'VCC' ? ' vcc' : ''} ,\n  outpin "${n.src.site}" ${n.src.pin} ,\n${n.sink ? `  inpin "${n.sink.site}" ${n.sink.pin} ,\n` : ''}${pips.join('\n')}\n  ;`);
   });
   fs.writeFileSync(file, txt.join('\n') + '\n');
 };

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { resolvePatterns } from '../research/s3e-bitstream/lib.mjs';
 import { SHIFTS } from '../research/s3e-bitstream/share-sb.mjs';
-import { makeDb } from '../core/fpga/bitgen.js';
+import { makeDb, featureBits } from '../core/fpga/bitgen.js';
 
 test('resolvePatterns: a PIP measured with different bits keeps the pattern without artefacts', () => {
   const p = (pat, n) => [pat, new Array(n).fill('T')];
@@ -41,6 +41,9 @@ test('measured database: the I/O, block-RAM and DCM tiles use the CLB switch box
   assert.ok(clb.length);
   assert.deepEqual(db.types.BRAM1_SMALL.feats.get('S2MID4->E2BEG4'), clb);
   assert.deepEqual(db.types.LIOIS.feats.get('S2MID4->E2BEG4'), clb.map(s => s.replace(/^(\d+)/, f => +f + 2)));
+  // the I/O tile's own pin wires: IOIS_F1_B0 is the CLB's F1_B0
+  assert.ok(db.types.CENTER_SMALL.feats.get('E2END6->F1_B0').length);
+  assert.deepEqual(featureBits(db.types.BIOIS, 'E2END6->IOIS_F1_B0'), db.types.CENTER_SMALL.feats.get('E2END6->F1_B0'));
 });
 
 test('measured database: SLICEM instances, the constant sources and the carry outputs', () => {
