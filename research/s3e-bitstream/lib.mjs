@@ -21,3 +21,13 @@ export function resolvePatterns(pats) {
   }
   return pats;
 }
+
+/** A PIP's measured bits without a LUT turned into the constant 0 (8 or more bits of one 16-bit LUT
+ *  block of one frame): removing the only route of a LUT's output makes bitgen clear the LUT, which
+ *  is not the PIP's. bits: ["df,db" | "!df,db", …] (relative or absolute). */
+export function stripLutRuns(bits) {
+  const key = s => { const [f, b] = s.replace('!', '').split(',').map(Number); return `${f}:${Math.floor(b / 16)}`; };
+  const n = new Map();
+  for (const s of bits) n.set(key(s), (n.get(key(s)) || 0) + 1);
+  return bits.filter(s => n.get(key(s)) < 8);
+}

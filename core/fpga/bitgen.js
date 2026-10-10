@@ -64,6 +64,8 @@ export function featureBits(type, feature) {
   const bits = type.feats.get(feature);
   // the terminal tiles' PIPs only join wires at the edges of the chip: no bits
   if (!bits && type.pipsWithoutBits && /->|=-/.test(feature)) return [];
+  // site settings whose bits are all in the pad's own features (emptyFeatures: a regexp)
+  if (!bits && type.emptyFeatures && new RegExp(type.emptyFeatures).test(feature)) return [];
   if (bits || !type.rename?.length) return bits;
   let f = feature;
   for (const [re, to] of type.rename) f = f.replace(re, to);
@@ -155,8 +157,10 @@ export function designFeatures(design, db) {
       if (/^IOB\d/.test(kind) && /^(DRIVEATTRBOX|SLEW|PULL)$/.test(c.attr)) continue;
       if ((c.attr === 'F' || c.attr === 'G') && /^#(LUT|ROM|RAM):/.test(c.value)) {
         const eq = c.value.replace(/^#\w+:/, '');
-        luts.push({ site: inst.site, lut: c.attr, bits: lutTable(eq, 4).bits, kind: c.value.slice(1, 4) });
-        feats.push({ tile: inst.tile, feature: `${kind}:${c.attr}:${c.value.slice(0, 4)}` });
+        luts.push({ site: inst.site, lut: c.attr, bits: lutBits(eq), kind: c.value.slice(1, 4) });
+        // a RAM LUT of a SLICEM: as a RAM, a dual-port RAM or a shift register (F_ATTR / G_ATTR)
+        const mode = c.value.startsWith('#RAM') && on(`${c.attr}_ATTR`) ? val(`${c.attr}_ATTR`) : null;
+        feats.push({ tile: inst.tile, feature: `${kind}:${c.attr}:${c.value.slice(0, 4)}${mode ? `:${mode}` : ''}` });
         continue;
       }
       feats.push({ tile: inst.tile, feature: `${kind}:${c.attr}:${c.name && !c.value ? '' : c.value}` });
@@ -181,6 +185,15 @@ export function pipFeatures(net) {
     if (driven.has(`${p.tile}:${p.to}`)) return `${p.to}->${p.from}`;
     return `${p.from}=-${p.to}`;
   });
+}
+
+/** The 16 memory bits of a LUT from its XDL equation: an expression of A1-A4, or the initial value
+ *  of a RAM / shift register in hexadecimal ("D=0x1234", bit a = address a). */
+export function lutBits(eq) {
+  const m = /^D=0x([0-9a-fA-F]{1,4})$/.exec(eq);
+  if (!m) return lutTable(eq, 4).bits;
+  const v = parseInt(m[1], 16);
+  return Array.from({ length: 16 }, (_, a) => (v >> a) & 1);
 }
 
 /** The kind and index of a site inside its tile: SLICE0…3 (by the parity of X and Y), IOB0…2

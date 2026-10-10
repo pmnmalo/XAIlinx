@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { resolvePatterns } from '../research/s3e-bitstream/lib.mjs';
+import { resolvePatterns, stripLutRuns } from '../research/s3e-bitstream/lib.mjs';
 import { SHIFTS } from '../research/s3e-bitstream/share-sb.mjs';
 import { makeDb, featureBits } from '../core/fpga/bitgen.js';
 
@@ -18,6 +18,12 @@ test('resolvePatterns: a PIP measured with different bits keeps the pattern with
   assert.deepEqual(resolvePatterns([p('', 1), p('14,4 14,5', 1)]).map(x => x[0]), ['14,4 14,5']);
   // nothing to tell apart: both stay
   assert.equal(resolvePatterns([p('1,1', 1), p('2,2', 1)]).length, 2);
+});
+
+test('stripLutRuns: a LUT cleared when a PIP was removed is not the PIP\'s', () => {
+  const lut = Array.from({ length: 16 }, (_, i) => `3,${32 + i}`);
+  assert.deepEqual(stripLutRuns([...lut, '7,55']), ['7,55']);
+  assert.deepEqual(stripLutRuns(['11,31', '12,27', '12,28', '!12,29']), ['11,31', '12,27', '12,28', '!12,29']);
 });
 
 test('share-sb: every tile type shares the switch box at one offset', () => {
@@ -62,4 +68,17 @@ test('measured database: SLICEM instances, the constant sources and the carry ou
   assert.deepEqual(f['SLICE1:SLICEM'], ['1,23', '1,25']);
   assert.deepEqual(f['SLICE1:_GND_SOURCE:Y'], []);
   assert.deepEqual(f['SLICE3:XBUSED:0'], []);
+});
+
+test('measured database: SLICEM as RAM / shift register, I/O drive, slew and pull per pad', () => {
+  const tiles = read('xc3s250e-tiles.json');
+  const f = tiles.types.CENTER_SMALL.features;
+  assert.deepEqual(f['SLICE0:F:#RAM'], ['!1,50']);
+  assert.deepEqual(f['SLICE1:G:#RAM:SHIFT_REG'], ['!1,25']);
+  assert.deepEqual(f['SLICE0:WSGEN:'], ['1,46']);
+  assert.equal(tiles.padDriveDefault.LVCMOS15, '8');
+  // every pad of the package with an output: the drive, slew, pull and standard changes
+  const pads = Object.values(tiles.padFeatures).filter(p => p['O:LVCMOS33']);
+  assert.ok(pads.length > 80);
+  for (const p of pads) for (const k of ['O:DRIVE:8', 'O:SLEW:FAST', 'O:PULL:PULLUP', 'O:LVCMOS18']) assert.ok(Array.isArray(p[k]), k);
 });

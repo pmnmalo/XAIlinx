@@ -1,0 +1,14 @@
+{"source":"stage D: SLICEM as RAM and shift register, in designs implemented by ISE (RAM16X1S / RAM16X1D / RAM32X1S / SRL16 / SRL16E / SRLC16E primitives, distributed RAMs and shift registers inferred by xst); each setting removed or the RAM made a LUT per slice position (gen-attrdrop.mjs, ana-attrdrop.mjs). The 2 USED bits of a SLICEM (F, G) are cleared by a RAM LUT, the 2 SLICEM bits (F, G) by a shift register; F:#RAM:SHIFT_REG = a LUT as shift register (F_ATTR); the write-address pins (WF1USED…), DUAL_PORT and BYINV have no bits of their own; the write strobe generator (WSGEN, in every slice with a RAM or shift register LUT) sets one bit (removing WSGEN alone does not change the bitstream: bitgen derives it)",
+"types":{"CENTER_SMALL":{"features":{
+"SLICE0:F:#RAM":["!1,50"],"SLICE0:F:#RAM:DUAL_PORT":["!1,50"],"SLICE0:F:#RAM:SHIFT_REG":["!1,55"],
+"SLICE0:G:#RAM":["!1,51"],"SLICE0:G:#RAM:DUAL_PORT":["!1,51"],"SLICE0:G:#RAM:SHIFT_REG":["!1,57"],
+"SLICE1:F:#RAM":["!1,18"],"SLICE1:F:#RAM:DUAL_PORT":["!1,18"],"SLICE1:F:#RAM:SHIFT_REG":["!1,23"],
+"SLICE1:G:#RAM":["!1,19"],"SLICE1:G:#RAM:DUAL_PORT":["!1,19"],"SLICE1:G:#RAM:SHIFT_REG":["!1,25"],
+"SLICE0:F_ATTR:DUAL_PORT":[],"SLICE0:F_ATTR:SHIFT_REG":[],"SLICE0:G_ATTR:DUAL_PORT":[],"SLICE0:G_ATTR:SHIFT_REG":[],
+"SLICE1:F_ATTR:DUAL_PORT":[],"SLICE1:F_ATTR:SHIFT_REG":[],"SLICE1:G_ATTR:DUAL_PORT":[],"SLICE1:G_ATTR:SHIFT_REG":[],
+"SLICE0:DIF_MUX:BX":["1,48"],"SLICE0:DIF_MUX:ALTDIF":[],"SLICE0:DIF_MUX:SHIFTIN":[],"SLICE0:DIG_MUX:BY":["1,37"],
+"SLICE1:DIF_MUX:BX":["1,16"],"SLICE1:DIF_MUX:ALTDIF":[],"SLICE1:DIF_MUX:SHIFTIN":[],"SLICE1:DIG_MUX:BY":["1,5"],
+"SLICE0:SLICEWE0USED:0":["2,46"],"SLICE1:SLICEWE0USED:0":["2,14"],"SLICE0:YBMUX:0":["1,58"],"SLICE1:YBMUX:0":["1,26"],
+"SLICE0:WF1USED:0":[],"SLICE0:WF2USED:0":[],"SLICE0:WF3USED:0":[],"SLICE0:WF4USED:0":[],"SLICE0:WG1USED:0":[],"SLICE0:WG2USED:0":[],"SLICE0:WG3USED:0":[],"SLICE0:WG4USED:0":[],"SLICE0:WSGEN:":["1,46"],
+"SLICE1:WF1USED:0":[],"SLICE1:WF2USED:0":[],"SLICE1:WF3USED:0":[],"SLICE1:WF4USED:0":[],"SLICE1:WG1USED:0":[],"SLICE1:WG2USED:0":[],"SLICE1:WG3USED:0":[],"SLICE1:WG4USED:0":[],"SLICE1:WSGEN:":["1,14"],
+"SLICE0:BYINV:BY":[],"SLICE1:BYINV:BY":[],"SLICE0:GMC15_BLACKBOX:":[],"SLICE1:GMC15_BLACKBOX:":[]}}}}

@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import { tileOf, tileBase } from '../../core/fpga/bitgen.js';
 import { loadDb } from './db.mjs';
-import { resolvePatterns } from './lib.mjs';
+import { resolvePatterns, stripLutRuns } from './lib.mjs';
 
 const db = loadDb();
 const seen = new Map();   // type \t feature -> Map(pattern -> [tiles])
@@ -14,7 +14,7 @@ for (const f of process.argv.slice(2)) {
     const t = tileOf(p.tile, db);
     const base = t && tileBase(t, db);
     if (!base) { if (p.bits.length) { if (!noBase.has(p.tile)) noBase.set(p.tile, []); noBase.get(p.tile).push(p); } continue; }
-    const pat = p.bits.map(([fr, b, v]) => `${v ? '' : '!'}${fr - base.frame},${b - base.bit}`).sort().join(' ');
+    const pat = stripLutRuns(p.bits.map(([fr, b, v]) => `${v ? '' : '!'}${fr - base.frame},${b - base.bit}`)).sort().join(' ');
     const k = `${t.type}\t${p.feature || `${p.from}${p.dir}${p.to}`}`;
     if (!seen.has(k)) seen.set(k, new Map());
     const m = seen.get(k);

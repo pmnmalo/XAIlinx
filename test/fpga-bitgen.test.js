@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { parseXdl } from '../core/xdl.js';
-import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, shiftBit, featureBits, knownRouting } from '../core/fpga/bitgen.js';
+import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, shiftBit, featureBits, knownRouting, lutBits } from '../core/fpga/bitgen.js';
 import { XC3S250E, readBit, getBit, diffFrames } from '../core/fpga/bitstream.js';
 
 const FW = XC3S250E.frameWords;
@@ -90,6 +90,43 @@ net "n" ,
   const { frames, unknown } = frameData(d, db);
   assert.deepEqual(unknown, []);
   assert.equal(getBit(frames, FW, 3 + 8, 128), 1);
+});
+
+test('a SLICEM as RAM or shift register: the LUT feature says which, the initial value in hexadecimal', () => {
+  assert.deepEqual(lutBits('D=0x8001'), [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+  assert.deepEqual(lutBits('D=A1'), [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]);
+  const db = tiny();
+  const d = parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "m" "SLICEM",placed CLB_X1Y1 SLICE_X0Y0 ,
+  cfg " F:m_f:#RAM:D=0x00FF G:m_g:#RAM:D=0x1234 G_ATTR::SHIFT_REG F_ATTR::#OFF FXMUX::F XUSED::0 "
+  ;`);
+  const { feats, luts } = designFeatures(d, db);
+  const names = feats.map(f => f.feature);
+  assert.ok(names.includes('SLICE0:F:#RAM') && names.includes('SLICE0:G:#RAM:SHIFT_REG'));
+  assert.deepEqual(luts.find(l => l.lut === 'F').bits, [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+});
+
+test('an I/O pad: drive, slew and pull are the pad\'s own features, against DRIVE 12, SLOW, no pull', () => {
+  const db = tiny();
+  db.tiles.padDriveDefault = { LVCMOS15: '8' };
+  db.pads.M5 = ['BIOIS_X1Y0', 0];
+  const io = cfg => designFeatures(parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "p" "IOB",placed BIOIS_X1Y0 M5 ,
+  cfg " ${cfg} OUTBUF:p_ob: PAD:p: "
+  ;`), db).feats.filter(f => f.tile === '@M5').map(f => f.feature);
+  assert.deepEqual(io('IOATTRBOX::LVCMOS33 DRIVEATTRBOX::12 SLEW::SLOW'), ['O:LVCMOS33']);
+  assert.deepEqual(io('IOATTRBOX::LVCMOS33 DRIVEATTRBOX::8 SLEW::FAST PULL::PULLUP'), ['O:LVCMOS33', 'O:DRIVE:8', 'O:SLEW:FAST', 'O:PULL:PULLUP']);
+  assert.deepEqual(io('IOATTRBOX::LVCMOS15 DRIVEATTRBOX::8 SLEW::SLOW'), ['O:LVCMOS15']);
+  // the I/O site's own settings of these are not features of the tile
+  const tileFeats = designFeatures(parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "p" "IOB",placed BIOIS_X1Y0 M5 ,
+  cfg " IOATTRBOX::LVCMOS33 DRIVEATTRBOX::8 SLEW::FAST PULL::PULLUP OUTBUF:p_ob: "
+  ;`), db).feats.filter(f => f.tile === 'BIOIS_X1Y0').map(f => f.feature);
+  assert.ok(!tileFeats.some(f => /DRIVE|SLEW|PULL/.test(f)));
+  // an I/O tile type whose site settings have their bits in the pad features
+  const t = makeDb({ layout: {}, lut: {}, tiles: { types: { BIOIS: { emptyFeatures: '^IOB\\d:(USED|PAD:)', features: {} } } } }).types.BIOIS;
+  assert.deepEqual(featureBits(t, 'IOB1:PAD:'), []);
+  assert.equal(featureBits(t, 'IOB1:IFF1:#FF'), undefined);
 });
 
 test('a SLICEM site holding a SLICEM instance has a feature of its own', () => {

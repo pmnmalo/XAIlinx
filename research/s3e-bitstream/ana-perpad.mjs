@@ -1,28 +1,25 @@
 // Analysis of gen-iob.mjs --perpad: what every change of an I/O setting does on every pad, with
 // absolute positions (frame, bit). Each variant changes the pads of one index in every third I/O tile
-// of each side; a bit that changed belongs to the changed pad whose tile is nearest.
+// of each side; a bit that changed belongs to the changed pad whose own bits (its LVCMOS33 pad
+// features, measured before) are nearest: a pad's bits are not always in its own tile's frames.
 //   node ana-perpad.mjs dir > perpad.json
 // Output (for merge-db.mjs): { padFeatures: { PAD: { 'O:LVCMOS18': [...], 'O:DRIVE:8': [...], … } },
 // padDriveDefault }: the I/O standards as whole pad features (the LVCMOS33 pad feature with the
 // change applied), DRIVE / SLEW / PULL as changes to apply ("f,b" set, "!f,b" cleared).
 import fs from 'node:fs';
 import { readBit, diffFrames } from '../../core/fpga/bitstream.js';
-import { tileOf, tileBase } from '../../core/fpga/bitgen.js';
 import { loadDb } from './db.mjs';
 
 const dir = process.argv[2];
 const db = loadDb();
 const key = JSON.parse(fs.readFileSync(`${dir}/key.json`, 'utf8'));
 const padOf = Object.fromEntries(key.pads.map(p => [p.site, p]));
+// a pad's anchor: the positions of its own LVCMOS33 bits (output and input)
 const window = site => {
-  const t = tileOf(padOf[site].tile, db), b = tileBase(t, db);
-  return b && { frame: b.frame, frames: t.x === 0 || t.x === 27 ? 21 : 19, bit: b.bit, bits: t.y === 0 || t.y === 35 ? 80 : 64 };
+  const pos = ['O:LVCMOS33', 'I:LVCMOS33'].flatMap(f => db.padFeats[site]?.[f] || []).map(s => s.replace('!', '').split(',').map(Number));
+  return pos.length ? pos : null;
 };
-const dist = (x, w) => {
-  const df = x.frame < w.frame ? w.frame - x.frame : x.frame >= w.frame + w.frames ? x.frame - w.frame - w.frames + 1 : 0;
-  const db2 = x.bit < w.bit ? w.bit - x.bit : x.bit >= w.bit + w.bits ? x.bit - w.bit - w.bits + 1 : 0;
-  return df * 64 + db2;
-};
+const dist = (x, w) => Math.min(...w.map(([f, b]) => Math.abs(x.frame - f) * 64 + Math.abs(x.bit - b)));
 // the name of a change as a feature: standards whole, the others as changes
 const STD = { STD25: 'LVCMOS25', STD18: 'LVCMOS18', STD15: 'LVCMOS15', STD12: 'LVCMOS12', LVTTL: 'LVTTL' };
 const OTHER = { D2: 'DRIVE:2', D4: 'DRIVE:4', D6: 'DRIVE:6', D8: 'DRIVE:8', D16: 'DRIVE:16', FAST: 'SLEW:FAST', PU: 'PULL:PULLUP', PD: 'PULL:PULLDOWN', KEEP: 'PULL:KEEPER' };
@@ -38,7 +35,7 @@ for (const v of key.variants) {
   for (const x of d) {
     let best = null, bd = Infinity;
     for (const c of wins) { const k = dist(x, c.w); if (k < bd) { bd = k; best = c; } }
-    if (bd > 64 * 3) { far++; continue; }
+    if (bd > 64 * 12) { far++; if (process.env.DEBUG) console.error(v.name, x.frame, x.bit, bd, best && best.site); continue; }
     best.bits.push(`${x.value ? '' : '!'}${x.frame},${x.bit}`);
   }
   const mode = v.base[0];

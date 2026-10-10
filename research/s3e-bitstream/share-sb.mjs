@@ -19,6 +19,7 @@ export const SHIFTS = {
 // the I/O tiles' own pin wires are the CLB's with another name (IOIS_X0 = X0, IOIS_F1_B0 = F1_B0,
 // IOIS_VCC_WIRE = VCC_PINWIRE): every one measured in both has the same bits
 export const RENAME = [['IOIS_VCC_WIRE', 'VCC_PINWIRE'], ['IOIS_', '']];
+export const IO_EMPTY = '^IOB\\d:(USED|PAD:|INBUF:|OUTBUF:|IMUX:|IDELMUX:|O1INV:|OMUX:|IOATTRBOX:|DRIVEATTRBOX:|SLEW:|PULL:)';
 const renamed = f => RENAME.reduce((x, [a, b]) => x.split(a).join(b), f);
 
 if (process.argv[1] && process.argv[1].endsWith('share-sb.mjs')) {
@@ -35,6 +36,9 @@ if (process.argv[1] && process.argv[1].endsWith('share-sb.mjs')) {
       if (sf || sb) t.shift = [sf, sb]; else delete t.shift;
       const io = /IOIS|IBUFS/.test(type);
       if (io) t.rename = RENAME; else delete t.rename;
+      // the I/O sites' settings of an input or output with a standard, drive, slew and pull: their
+      // bits are the pad's own features (184 measured, none with bits of the tile)
+      if (io) t.emptyFeatures = IO_EMPTY; else delete t.emptyFeatures;
       for (const [f, bits] of Object.entries(t.features)) {
         const c = clb[io ? renamed(f) : f];
         if (!c || !/->|=-/.test(f)) continue;
