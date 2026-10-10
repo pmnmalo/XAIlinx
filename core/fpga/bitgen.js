@@ -24,7 +24,8 @@ export function makeDb({ layout, lut, tiles }) {
     types[type] = { ...t, feats };
   }
   // a tile type may share the features of another (same switch box)
-  for (const t of Object.values(types)) if (t.sameAs && types[t.sameAs]) t.feats = types[t.sameAs].feats;
+  // (its own features, measured on it, come first)
+  for (const t of Object.values(types)) if (t.sameAs && types[t.sameAs]) t.feats = new Map([...types[t.sameAs].feats, ...t.feats]);
   return { layout, lut, tiles, types, pads: tiles.pads || {} };
 }
 
@@ -78,9 +79,23 @@ export function designFeatures(design, db) {
   }
   for (const net of design.nets) {
     if (!net.outpins.length && !net.inpins.length) continue;
-    for (const p of net.pips) feats.push({ tile: p.tile, feature: `${p.from}${p.dir === '->' ? '->' : p.dir}${p.to}` });
+    const names = pipFeatures(net);
+    net.pips.forEach((p, i) => feats.push({ tile: p.tile, feature: names[i] }));
   }
   return { feats, luts };
+}
+
+/** The feature names of a net's PIPs: "from->to". A bidirectional PIP (XDL "a =- b") is used in one
+ *  direction, the one away from the wire that another PIP of the net drives: "a->b" (or "b->a");
+ *  it stays "a=-b" when the net does not tell. */
+export function pipFeatures(net) {
+  const driven = new Set(net.pips.filter(p => p.dir !== '=-').map(p => `${p.tile}:${p.to}`));
+  return net.pips.map(p => {
+    if (p.dir !== '=-') return `${p.from}->${p.to}`;
+    if (driven.has(`${p.tile}:${p.from}`)) return `${p.from}->${p.to}`;
+    if (driven.has(`${p.tile}:${p.to}`)) return `${p.to}->${p.from}`;
+    return `${p.from}=-${p.to}`;
+  });
 }
 
 /** The kind and index of a site inside its tile: SLICE0…3 (by the parity of X and Y), IOB0…2
@@ -93,8 +108,10 @@ export function siteKind(inst, db) {
     return p ? `IOB${p[1]}` : null;
   }
   if (inst.type === 'VCC' || inst.type === 'GND' || inst.type === 'TIEOFF') return null;
-  const s = /(\d+)$/.exec(inst.site || '');
-  return `${inst.type}${s && /^BUFGMUX/.test(inst.site) ? s[1] : ''}`;
+  // global clock buffers: their tiles (CLKB, CLKT, CLKL, CLKR) have one instance each, so the site
+  // name says which buffer it is
+  if (/^BUFGMUX_/.test(inst.site || '')) return inst.site;
+  return inst.type;
 }
 
 /** The frame data of a design: { frames, unknown: [{ tile, feature }] }. */

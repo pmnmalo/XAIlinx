@@ -37,8 +37,10 @@ for (let i = 0; i < args.length; i += 2) {
     let hit = false;
     for (const t of placed) {
       const df = r.frame - t.base.frame, dbit = r.bit - t.base.bit;
-      const nf = db.layout.typeFrames?.[t.type] ?? 19, nb = (t.t.y === 0 || t.t.y === 35) ? 80 : 64;
-      if (df >= 0 && df < nf && dbit >= 0 && dbit < nb) { t.bits.add(`${r.value ? '' : '!'}${df},${dbit}`); hit = true; }
+      const nf = db.layout.typeFrames?.[t.type] ?? 19, nb = db.layout.typeBits?.[t.type] ?? ((t.t.y === 0 || t.t.y === 35) ? 80 : 64);
+      // I/O tiles also set bits in the column before theirs
+      const f0 = /IOIS|IBUFS/.test(t.type) ? -19 : 0;
+      if (df >= f0 && df < nf && dbit >= 0 && dbit < nb) { t.bits.add(`${r.value ? '' : '!'}${df},${dbit}`); hit = true; }
     }
     if (!hit) { unplaced++; if (verbose) console.log('no tile for', args[i], r); }
   }

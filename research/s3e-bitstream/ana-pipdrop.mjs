@@ -8,11 +8,17 @@ import fs from 'node:fs';
 import { readBit, diffFrames } from '../../core/fpga/bitstream.js';
 import { loadGraph } from './xdlrc-graph.mjs';
 import { tileWindow, setGrid } from './layout.mjs';
+import { parseXdl } from '../../core/xdl.js';
+import { pipFeatures } from '../../core/fpga/bitgen.js';
 
 const [dir, xdlrc] = process.argv.slice(2);
 const key = JSON.parse(fs.readFileSync(`${dir}/key.json`, 'utf8'));
 const g = loadGraph(xdlrc);
 setGrid(g.tiles);
+// the feature name of every PIP of the base design (bidirectional PIPs get their direction)
+const featName = new Map();
+for (const net of parseXdl(fs.readFileSync(`${dir}/BASE.xdl`, 'utf8')).nets) { const f = pipFeatures(net); net.pips.forEach((p, i) => featName.set(`${p.tile} ${p.from} ${p.dir} ${p.to}`, f[i])); }
+const fname = (tile, p) => featName.get(`${tile} ${p.from} ${p.dir} ${p.to}`) || `${p.from}${p.dir}${p.to}`;
 const base = readBit(fs.readFileSync(`${dir}/BASE.bit`));
 // signature of every changed bit: the variants it changes in
 const sig = new Map();   // "frame:bit" -> { frame, bit, value (in BASE), vs: [] }
@@ -49,7 +55,7 @@ for (const s of sig.values()) {
     if (d < bd) { bd = d; best = c; }
   }
   const k = `${best.tile} ${best.from} ${best.dir} ${best.to}`;
-  if (!result.has(k)) result.set(k, { tile: best.tile, type: g.tiles[g.tileByName.get(best.tile)].type, from: best.from, dir: best.dir, to: best.to, bits: [], dist: 0 });
+  if (!result.has(k)) result.set(k, { tile: best.tile, type: g.tiles[g.tileByName.get(best.tile)].type, from: best.from, dir: best.dir, to: best.to, feature: fname(best.tile, best), bits: [], dist: 0 });
   const r = result.get(k);
   r.bits.push([s.frame, s.bit, s.value]);
   r.dist = Math.max(r.dist, bd);
@@ -58,7 +64,7 @@ for (const s of sig.values()) {
 const pips = [];
 for (const [tile, ps] of Object.entries(key.tiles)) for (const p of ps) {
   const k = `${tile} ${p.from} ${p.dir} ${p.to}`;
-  pips.push(result.get(k) || { tile, type: g.tiles[g.tileByName.get(tile)].type, from: p.from, dir: p.dir, to: p.to, bits: [], dist: 0 });
+  pips.push(result.get(k) || { tile, type: g.tiles[g.tileByName.get(tile)].type, from: p.from, dir: p.dir, to: p.to, feature: fname(tile, p), bits: [], dist: 0 });
 }
 console.log(JSON.stringify({ dir, pips, unexplained }));
 console.error(`${pips.length} PIPs, ${pips.filter(p => p.bits.length).length} with bits, ${sig.size} bits changed, ${unexplained.length} unexplained, far: ${pips.filter(p => p.dist > 0).length}`);

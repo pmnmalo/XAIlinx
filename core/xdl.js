@@ -43,7 +43,7 @@ function tokenize(text) {
   const src = String(text).split('\n').filter(l => !/^\s*#/.test(l)).join('\n');
   const re = /"((?:[^"\\]|\\.)*)"|([,;])|([^\s,;"]+)/g;
   let m;
-  while ((m = re.exec(src))) toks.push(m[1] !== undefined ? { s: m[1].replace(/\\(.)/g, '$1') } : m[2] ? { p: m[2] } : { w: m[3] });
+  while ((m = re.exec(src))) toks.push(m[1] !== undefined ? { s: m[1].replace(/\\(.)/g, '$1'), raw: m[1].replace(/\\"/g, '"') } : m[2] ? { p: m[2] } : { w: m[3] });
   return toks;
 }
 
@@ -76,6 +76,8 @@ export function parseXdl(text) {
   const next = () => t[i++];
   const word = () => { const x = t[i]; if (x && x.w !== undefined) { i++; return x.w; } return null; };
   const str = () => { const x = t[i]; if (x && x.s !== undefined) { i++; return x.s; } return null; };
+  // a configuration string keeps its escapes ('\\:' in names) for parseCfg
+  const rawStr = () => { const x = t[i]; if (x && x.raw !== undefined) { i++; return x.raw; } return null; };
   const skipTo = () => { while (i < t.length && t[i].p !== ';') i++; i++; };
   while (i < t.length) {
     const tk = next();
@@ -89,7 +91,7 @@ export function parseXdl(text) {
       const how = word();
       if (how === 'placed') { inst.placed = true; inst.tile = word(); inst.site = word(); }
       while (i < t.length && t[i].p !== ';') {
-        if (t[i].w === 'cfg') { i++; inst.cfg = parseCfg(str()); } else if (t[i].w === 'module') { i++; inst.module = str(); } else i++;
+        if (t[i].w === 'cfg') { i++; inst.cfg = parseCfg(rawStr()); } else if (t[i].w === 'module') { i++; inst.module = str(); } else i++;
       }
       i++;
       out.insts.push(inst);
