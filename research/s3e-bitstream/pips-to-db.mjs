@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import { tileOf, tileBase } from '../../core/fpga/bitgen.js';
 import { loadDb } from './db.mjs';
+import { resolvePatterns } from './lib.mjs';
 
 const db = loadDb();
 const seen = new Map();   // type \t feature -> Map(pattern -> [tiles])
@@ -22,19 +23,25 @@ for (const f of process.argv.slice(2)) {
   }
 }
 const out = { types: {} };
-let conflicts = 0, single = 0;
+let conflicts = 0, single = 0, resolved = 0;
 for (const [k, m] of seen) {
   const [type, feature] = k.split('\t');
-  const pats = [...m].sort((a, b) => b[1].length - a[1].length);
+  let pats = [...m].sort((a, b) => b[1].length - a[1].length);
   if (pats.length > 1) {
     conflicts++;
     console.error(`conflict ${type} ${feature}: ${pats.map(([p, ts]) => `[${p}] x${ts.length} (${ts.slice(0, 3).join(',')})`).join('  |  ')}`);
-    // keep the most frequent pattern only when it is clearly the majority
-    if (pats[0][1].length < 2 * pats[1][1].length) continue;
+    // keep the most frequent pattern when it is clearly the majority; otherwise leave out the
+    // patterns that show a side effect of the removed PIP (artefact) and take the most frequent
+    if (pats[0][1].length < 2 * pats[1][1].length) {
+      pats = resolvePatterns(pats);
+      if (pats.length > 1 && pats[0][1].length === pats[1][1].length) continue;
+      resolved++;
+      console.error(`  resolved: [${pats[0][0]}]`);
+    }
   }
   if (pats[0][1].length === 1) single++;
   ((out.types[type] ||= { features: {} }).features[feature] = pats[0][0] ? pats[0][0].split(' ') : []);
 }
 for (const [tile, ps] of noBase) console.error(`no layout for ${tile}: ${ps.map(p => `${p.from}->${p.to} ${p.bits.map(b => b.join('/')).join(' ')}`).join('; ')}`);
-console.error(`${seen.size} PIP features, ${conflicts} with different bits in different tiles, ${single} seen in one tile only`);
+console.error(`${seen.size} PIP features, ${conflicts} with different bits in different tiles (${resolved} resolved), ${single} seen in one tile only`);
 console.log(JSON.stringify(out));

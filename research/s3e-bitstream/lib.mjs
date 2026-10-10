@@ -7,3 +7,17 @@ export function eqOf(bits) {
   if (ones.length === 16) return 'D=(A1+~A1)';
   return `D=(${ones.map(a => `(${lits(a)})`).join('+')})`;
 }
+
+/** Artefacts among different patterns of one PIP: a LUT turned to the constant 0 when its output
+ *  lost its only route (8 or more bits of one 16-bit LUT block), a cleared bit (the pin's input
+ *  multiplexer falling back to another setting), no bits while others have bits (bits given to a
+ *  neighbouring tile). Each filter applies only when it leaves a pattern.
+ *  pats: [[pattern ("df,db df,db …"), tiles], …] sorted by count; returns the patterns left, same order. */
+export function resolvePatterns(pats) {
+  const lutRun = p => { const n = new Map(); for (const s of p.split(' ')) { const [f, b] = s.replace('!', '').split(',').map(Number); const k = `${f}:${Math.floor(b / 16)}`; n.set(k, (n.get(k) || 0) + 1); } return [...n.values()].some(c => c >= 8); };
+  for (const bad of [p => p && lutRun(p), p => p.includes('!'), p => !p]) {
+    const keep = pats.filter(([p]) => !bad(p));
+    if (keep.length) pats = keep;
+  }
+  return pats;
+}

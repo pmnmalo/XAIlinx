@@ -7,6 +7,9 @@
 #   measured/learn-*, fix-*  features found by ana-residual / ana-attrdrop / ana-pads / learn-single /
 #                            explain-diff (see README), in the repository
 #   $W/{p1,c1,c2,k1,iop/*}/  PIP batches (gen-pipdrop.mjs, gen-pipcover.mjs, gen-clock.mjs)
+#   $W/{d1,d2}/              PIP batches on blinky and lab11 placed and routed by Silinx (gen-pipdrop.mjs)
+#   $W/c6…c16/               PIP batches of stage D (gen-pipcover.mjs: carry outputs, clock pins, the
+#                            constant 1, long lines, terminal tiles, I/O and block-RAM pins)
 #   $W/io1/                  I/O settings (gen-iob.mjs)
 #   $W/ref/                  designs implemented by ISE (routed XDL + .bit) for the residual analysis
 set -e
@@ -17,7 +20,7 @@ rm -f db/xc3s250e-tiles.json
 node gen-slicedb.mjs measured/slice/*.json > "$W/slice-features.json"
 echo '{"types":{"CENTER_SMALL_BRK":{"sameAs":"CENTER_SMALL"}}}' > "$W/brk.json"
 PIPS=()
-for d in p1 c1 c2 c3 c4 c5 k1 iop/O iop/I; do
+for d in p1 c1 c2 c3 c4 c5 k1 iop/O iop/I d1 d2 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16; do
   [ -f "$W/$d/key.json" ] && [ -f "$W/$d/BASE.bit" ] && [ "$(ls "$W/$d" | grep -c "^V.*bit$")" = "$(node -p "require(\"$W/$d/key.json\").L")" ] || continue
   [ -f "$W/$d/pips.json" ] || node ana-pipdrop.mjs "$W/$d" "$W/dev-full.xdlrc" > "$W/$d/pips.json"
   PIPS+=("$W/$d/pips.json")
@@ -27,6 +30,8 @@ tail -1 "$W/pip-report.txt"
 node merge-db.mjs "$W/slice-features.json" "$W/brk.json" "$W/pip-features.json"
 for f in measured/learn-*.json; do [ -f "$f" ] && node merge-db.mjs --keep "$f"; done
 node unify-io.mjs
+# the I/O, corner, block-RAM interconnect and DCM tiles share the CLB's switch box (stage D)
+node share-sb.mjs
 # corrections found by comparing whole designs with ISE (check-writer.mjs, explain-diff.mjs)
 for f in measured/fix-*.json; do [ -f "$f" ] && node merge-db.mjs "$f"; done
 

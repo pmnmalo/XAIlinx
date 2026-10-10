@@ -40,9 +40,17 @@ export function makeDb({ layout, lut, tiles, pads = {} }) {
     for (const [f, bits] of Object.entries(t.features || {})) feats.set(f, bits);
     types[type] = { ...t, feats };
   }
-  // a tile type may share the features of another (same switch box)
-  // (its own features, measured on it, come first)
-  for (const t of Object.values(types)) if (t.sameAs && types[t.sameAs]) t.feats = new Map([...types[t.sameAs].feats, ...t.feats]);
+  // a tile type may share the features of another (same switch box), at an offset of its frames and
+  // bits (`shift: [df, db]`: the switch box of an I/O tile is the CLB's, 2 frames later in the
+  // left column, 16 bits further in the top row); its own features, measured on it, come first
+  const own = new Map(Object.entries(types).map(([k, t]) => [k, t.feats]));
+  for (const t of Object.values(types)) {
+    const src = t.sameAs && own.get(t.sameAs);
+    if (!src) continue;
+    const [sf, sb] = t.shift || [0, 0];
+    const shifted = sf || sb ? [...src].map(([f, bits]) => [f, bits.map(s => shiftBit(s, sf, sb))]) : [...src];
+    t.feats = new Map([...shifted, ...t.feats]);
+  }
   return { layout, lut, tiles, types, pads, padFeats: tiles.padFeatures || {} };
 }
 
@@ -76,6 +84,12 @@ export const parseBit = s => {
   return [df, db, v, dx, dy];
 };
 
+/** A bit of the database ("df,db", "!df,db", "df,db@dx,dy") moved by sf frames and sb bits. */
+export const shiftBit = (s, sf, sb) => {
+  const [df, db, v, dx, dy] = parseBit(s);
+  return `${v ? '' : '!'}${df + sf},${db + sb}${dx || dy ? `@${dx},${dy}` : ''}`;
+};
+
 /** The features of a design: [{ tile: name, feature }] plus the LUT contents [{ site, lut: 'F' | 'G', bits }].
  *  A PIP is a feature only on a net with pins (bitgen does not program the routing of a net without
  *  pins). Site settings are `${site kind}${index}:${attr}:${value}` (value '' for a named element). */
@@ -87,6 +101,9 @@ export function designFeatures(design, db) {
     if (!kind) continue;
     // the site is used: some settings are set for every used site
     feats.push({ tile: inst.tile, feature: `${kind}:USED` });
+    // a SLICEM site holds an instance of type SLICEM or SLICEL: as a SLICEM it sets 2 bits more
+    // (feature SLICEk:SLICEM)
+    if (inst.type === 'SLICEM') feats.push({ tile: inst.tile, feature: `${kind}:SLICEM` });
     // an I/O: its direction and I/O standard together ('O:LVCMOS33'), a feature of the pad itself
     // (tile '@M5'): the pads do not repeat one pattern per tile type, so their bits are absolute
     if (/^IOB\d/.test(kind)) {

@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { parseXdl } from '../core/xdl.js';
-import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice } from '../core/fpga/bitgen.js';
+import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, shiftBit } from '../core/fpga/bitgen.js';
 import { XC3S250E, readBit, getBit, diffFrames } from '../core/fpga/bitstream.js';
 
 const FW = XC3S250E.frameWords;
@@ -49,6 +49,53 @@ test('tiles: type from the name, start from the layout', () => {
   // a tile type that shares another's features keeps its own first
   assert.deepEqual(db.types.CENTER_SMALL_BRK.feats.get('X0->OMUX0'), ['6,29']);
   assert.deepEqual(db.types.CENTER_SMALL_BRK.feats.get('OMUX0->E2BEG0'), ['7,1', '!8,2']);
+});
+
+test('tile types share a switch box at an offset of frames and bits', () => {
+  assert.equal(shiftBit('6,28', 2, 0), '8,28');
+  assert.equal(shiftBit('!8,2', 0, 16), '!8,18');
+  assert.equal(shiftBit('5,70@1,0', 2, 16), '7,86@1,0');
+  const db = makeDb({
+    layout: { cols: { 0: 3 }, rows: { 5: 100 } },
+    lut: {},
+    tiles: { types: {
+      CENTER_SMALL: { features: { 'X0->OMUX0': ['6,28'], 'OMUX0->E2BEG0': ['7,1', '!8,2'] } },
+      LIOIS: { sameAs: 'CENTER_SMALL', shift: [2, 0], features: { 'IOIS_Y0->OMUX0': ['1,1'] } },
+      TIOIS: { sameAs: 'CENTER_SMALL', shift: [0, 16], features: { 'X0->OMUX0': ['6,99'] } },
+    } },
+  });
+  assert.deepEqual(db.types.LIOIS.feats.get('OMUX0->E2BEG0'), ['9,1', '!10,2']);
+  assert.deepEqual(db.types.LIOIS.feats.get('IOIS_Y0->OMUX0'), ['1,1']);
+  // the type's own measurement first; the shared type is unchanged
+  assert.deepEqual(db.types.TIOIS.feats.get('X0->OMUX0'), ['6,99']);
+  assert.deepEqual(db.types.TIOIS.feats.get('OMUX0->E2BEG0'), ['7,17', '!8,18']);
+  assert.deepEqual(db.types.CENTER_SMALL.feats.get('OMUX0->E2BEG0'), ['7,1', '!8,2']);
+  // in the frame data: LIOIS_X0Y5 starts at frame 3, bit 100
+  const d = parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+net "n" ,
+  outpin "a" X ,
+  inpin "b" F1 ,
+  pip LIOIS_X0Y5 X0 -> OMUX0 ,
+  ;`);
+  const { frames, unknown } = frameData(d, db);
+  assert.deepEqual(unknown, []);
+  assert.equal(getBit(frames, FW, 3 + 8, 128), 1);
+});
+
+test('a SLICEM site holding a SLICEM instance has a feature of its own', () => {
+  const db = tiny();
+  const d = parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "m" "SLICEM",placed CLB_X1Y1 SLICE_X0Y0 ,
+  cfg " _NO_USER_LOGIC:: _GND_SOURCE::Y "
+  ;
+inst "l" "SLICEL",placed CLB_X1Y1 SLICE_X0Y1 ,
+  cfg " F:l_f:#LUT:D=A1 FXMUX::F XUSED::0 "
+  ;`);
+  const names = designFeatures(d, db).feats.map(f => f.feature);
+  assert.ok(names.includes('SLICE0:SLICEM'));
+  assert.ok(names.includes('SLICE0:_GND_SOURCE:Y'));
+  assert.ok(names.includes('SLICE1:USED'));
+  assert.ok(!names.includes('SLICE1:SLICEM'));
 });
 
 test('XDL configuration strings keep escaped colons in names', () => {
