@@ -79,14 +79,20 @@ export function designFeatures(design, db) {
       feats.push({ tile: `@${inst.site}`, feature: `${mode}:${std}` });
     }
     // a LUT not used in a used slice holds the constant 0 (written like any LUT: 16 ones, inverted);
-    // a LUT used while the slice output after it (X for F, Y for G) is not used: bitgen sets the
-    // output multiplexer (FXMUX, GYMUX) to all ones (feature SLICEk:FXMUX:#OFF)
-    if (/^SLICE/.test(kind)) for (const [l, mux, used] of [['F', 'FXMUX', 'XUSED'], ['G', 'GYMUX', 'YUSED']]) {
+    // a LUT used while the path after it (the X / Y output, or the flip-flop through DXMUX / DYMUX
+    // = 1) is not used: bitgen sets the output multiplexer (FXMUX, GYMUX) to all ones (feature
+    // SLICEk:FXMUX:#OFF)
+    const val = a => (inst.cfg.find(c => c.attr === a) || {}).value;
+    const on = a => { const v = val(a); return v !== undefined && v !== '#OFF'; };
+    if (/^SLICE/.test(kind)) for (const [l, mux, out, ff, dmux] of [['F', 'FXMUX', 'XUSED', 'FFX', 'DXMUX'], ['G', 'GYMUX', 'YUSED', 'FFY', 'DYMUX']]) {
       if (!inst.cfg.some(c => c.attr === l && /^#(LUT|ROM|RAM):/.test(c.value))) luts.push({ site: inst.site, lut: l, bits: new Array(16).fill(0), kind: 'OFF' });
-      else if (!inst.cfg.some(c => c.attr === used && c.value !== '#OFF')) feats.push({ tile: inst.tile, feature: `${kind}:${mux}:#OFF` });
+      else if (!on(out) && !(on(ff) && val(dmux) === '1')) feats.push({ tile: inst.tile, feature: `${kind}:${mux}:#OFF` });
     }
+    // flip-flops without a clock enable: the enable is on (feature SLICEk:CEINV:#OFF)
+    if (/^SLICE/.test(kind) && (on('FFX') || on('FFY')) && !on('CEINV')) feats.push({ tile: inst.tile, feature: `${kind}:CEINV:#OFF` });
     for (const c of inst.cfg) {
-      if (c.value === '#OFF' || c.attr.startsWith('_')) continue;
+      // underscore settings are notes of the tools, except the constant sources (_GND_SOURCE::Y)
+      if (c.value === '#OFF' || (c.attr.startsWith('_') && !/^_(GND|VCC)_SOURCE$/.test(c.attr))) continue;
       if ((c.attr === 'F' || c.attr === 'G') && /^#(LUT|ROM|RAM):/.test(c.value)) {
         const eq = c.value.replace(/^#\w+:/, '');
         luts.push({ site: inst.site, lut: c.attr, bits: lutTable(eq, 4).bits, kind: c.value.slice(1, 4) });

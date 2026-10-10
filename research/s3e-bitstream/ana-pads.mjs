@@ -81,4 +81,5 @@ for (const [k, set] of tileBits) {
   if (missing.length || extra.length) { bad++; console.error(`  ${k}: tile bits not given to a pad: ${missing.join(' ')}; pad bits not in the tile set: ${extra.join(' ')}`); }
 }
 console.error(`${bad} (tile, setting) sets not explained by their pads`);
+for (const p of Object.values(pads)) for (const k of Object.keys(p)) p[k] = [...new Set(p[k])].sort();
 console.log(JSON.stringify({ padFeatures: pads }));

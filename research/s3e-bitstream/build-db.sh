@@ -25,4 +25,6 @@ node pips-to-db.mjs "${PIPS[@]}" > "$W/pip-features.json" 2> "$W/pip-report.txt"
 tail -1 "$W/pip-report.txt"
 node merge-db.mjs "$W/slice-features.json" "$W/brk.json" "$W/pads.json" "$W/pip-features.json"
 for f in "$W"/learn-*.json; do [ -f "$f" ] && node merge-db.mjs --keep "$f"; done
+# corrections found by comparing whole designs with ISE (check-writer.mjs, explain-diff.mjs)
+for f in "$W"/fix-*.json; do [ -f "$f" ] && node merge-db.mjs "$f"; done
 true
