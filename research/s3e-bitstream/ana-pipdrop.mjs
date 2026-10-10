@@ -9,12 +9,21 @@ import { readBit, diffFrames } from '../../core/fpga/bitstream.js';
 import { loadGraph } from './xdlrc-graph.mjs';
 import { tileWindow, setGrid } from './layout.mjs';
 import { parseXdl } from '../../core/xdl.js';
-import { pipFeatures } from '../../core/fpga/bitgen.js';
+import { pipFeatures, tileOf, tileBase } from '../../core/fpga/bitgen.js';
+import { loadDb } from './db.mjs';
 
 const [dir, xdlrc] = process.argv.slice(2);
 const key = JSON.parse(fs.readFileSync(`${dir}/key.json`, 'utf8'));
 const g = loadGraph(xdlrc);
 setGrid(g.tiles);
+const db = loadDb();
+// the window of a tile: from the database's layout when it knows the tile
+const windowOf = t => {
+  const tt = tileOf(t.name, db), b = tt && tileBase(tt, db);
+  if (!b) return tileWindow(t);
+  const L = db.layout;
+  return { frame: b.frame, frames: L.typeFrames?.[tt.type] ?? (tt.x === 0 || tt.x === 27 ? 21 : 19), bit: b.bit, bits: L.typeBits?.[tt.type] ?? (tt.y === 0 || tt.y === 35 ? 80 : 64) };
+};
 // the feature name of every PIP of the base design (bidirectional PIPs get their direction)
 const featName = new Map();
 for (const net of parseXdl(fs.readFileSync(`${dir}/BASE.xdl`, 'utf8')).nets) { const f = pipFeatures(net); net.pips.forEach((p, i) => featName.set(`${p.tile} ${p.from} ${p.dir} ${p.to}`, f[i])); }
@@ -48,7 +57,7 @@ for (const s of sig.values()) {
   let best = null, bd = Infinity;
   for (const c of cands) {
     const t = g.tiles[g.tileByName.get(c.tile)];
-    const w = tileWindow(t);
+    const w = windowOf(t);
     const df = w.frame == null ? 50 : s.frame < w.frame ? w.frame - s.frame : s.frame >= w.frame + w.frames ? s.frame - w.frame - w.frames + 1 : 0;
     const db = w.bit == null ? 200 : s.bit < w.bit ? w.bit - s.bit : s.bit >= w.bit + w.bits ? s.bit - w.bit - w.bits + 1 : 0;
     const d = df * 64 + db;

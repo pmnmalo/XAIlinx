@@ -18,14 +18,16 @@ rows[0] = 2256; rows[35] = 0;
 // the I/O columns (from the routing switches of the I/O tiles): 21 frames each; frames 0-2 before
 // the left one hold the global clock columns
 cols[0] = 3; cols[27] = 366;
-// tiles of the global clock network with one instance (their bits are in frames 0-2): the buffers
-// at the bottom and top in the I/O rows, the centre ones from the row of CLB_X…Y18
+// tiles of the global clock network with one instance: their bits are in frames 0-2 (the
+// buffers at the bottom and top in the I/O rows; the centre: GCLKVML frame 0, GCLKVMR frame 1, CLKC
+// frame 2, from the row of CLB_X…Y18)
 const typeCols = {}, typeRows = {}, typeFrames = {}, typeBits = {};
-for (const [type, x, y, bit, bits] of [['CLKB', 13, 0, 2256, 80], ['CLKT', 13, 35, 0, 80], ['CLKC', 13, 17, 1104, 128], ['GCLKVML', 6, 17, 1104, 128], ['GCLKVMR', 20, 17, 1104, 128]]) {
-  typeCols[type] = { [x]: 0 }; typeRows[type] = { [y]: bit }; typeFrames[type] = 3; typeBits[type] = bits;
+for (const [type, x, y, frame, frames, bit, bits] of [['CLKB', 13, 0, 0, 3, 2256, 80], ['CLKT', 13, 35, 0, 3, 0, 80], ['CLKC', 13, 17, 2, 1, 1104, 128], ['GCLKVML', 6, 17, 0, 1, 1104, 128], ['GCLKVMR', 20, 17, 1, 1, 1104, 128]]) {
+  typeCols[type] = { [x]: frame }; typeRows[type] = { [y]: bit }; typeFrames[type] = frames; typeBits[type] = bits;
 }
 // the horizontal clock rows (GCLKH): one bit in the I/O rows at the top and bottom of the frame
-typeRows.GCLKH = { 29: 1, 21: 2, 13: 2334, 5: 2335 };
+typeRows.GCLKH = { 29: 3, 21: 2, 13: 2334, 5: 2335 };
+typeBits.GCLKH = 1;
 const empty = readBit(fs.readFileSync(emptyBit));
 const defaults = diffFrames(new Uint32Array(empty.frames.length), empty.frames).map(d => [d.frame, d.bit]);
 const more = extra ? JSON.parse(fs.readFileSync(extra, 'utf8')) : {};

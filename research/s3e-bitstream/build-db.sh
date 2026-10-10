@@ -4,7 +4,7 @@
 #   $W/dev-full.xdlrc        xdl -report -pips -all_conns xc3s250ecp132-4
 #   $W/empty.bit             an empty design
 #   $W/slice/*.json          slice harness results (analyze-slice.mjs)
-#   $W/{p1,c1,c2,k1}/        PIP batches (gen-pipdrop.mjs, gen-pipcover.mjs, gen-clock.mjs)
+#   $W/{p1,c1,c2,k1,iop/*}/  PIP batches (gen-pipdrop.mjs, gen-pipcover.mjs, gen-clock.mjs)
 #   $W/io1/                  I/O settings (gen-iob.mjs)
 #   $W/ref/                  designs implemented by ISE (routed XDL + .bit) for the residual analysis
 set -e
@@ -16,7 +16,7 @@ node gen-slicedb.mjs "$W"/slice/*.json > "$W/slice-features.json"
 echo '{"types":{"CENTER_SMALL_BRK":{"sameAs":"CENTER_SMALL"}}}' > "$W/brk.json"
 node gen-pads.mjs "$W/dev-full.xdlrc" > "$W/pads.json"
 PIPS=()
-for d in p1 c1 c2 k1 c3 c4; do
+for d in p1 c1 c2 c3 c4 k1 iop/O iop/I; do
   [ -f "$W/$d/key.json" ] && [ -f "$W/$d/BASE.bit" ] && [ "$(ls "$W/$d" | grep -c "^V.*bit$")" = "$(node -p "require(\"$W/$d/key.json\").L")" ] || continue
   [ -f "$W/$d/pips.json" ] || node ana-pipdrop.mjs "$W/$d" "$W/dev-full.xdlrc" > "$W/$d/pips.json"
   PIPS+=("$W/$d/pips.json")

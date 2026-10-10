@@ -81,13 +81,13 @@
    "13": 0
   },
   "CLKC": {
-   "13": 0
+   "13": 2
   },
   "GCLKVML": {
    "6": 0
   },
   "GCLKVMR": {
-   "20": 0
+   "20": 1
   }
  },
  "typeRows": {
@@ -110,22 +110,23 @@
    "5": 2335,
    "13": 2334,
    "21": 2,
-   "29": 1
+   "29": 3
   }
  },
  "typeFrames": {
   "CLKB": 3,
   "CLKT": 3,
-  "CLKC": 3,
-  "GCLKVML": 3,
-  "GCLKVMR": 3
+  "CLKC": 1,
+  "GCLKVML": 1,
+  "GCLKVMR": 1
  },
  "typeBits": {
   "CLKB": 80,
   "CLKT": 80,
   "CLKC": 128,
   "GCLKVML": 128,
-  "GCLKVMR": 128
+  "GCLKVMR": 128,
+  "GCLKH": 1
  },
  "defaults": [
   [3, 37],

@@ -14,6 +14,8 @@ const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); if (i < 0) return d; const v = args[i + 1]; args.splice(i, 2); return v; };
 const typesOpt = opt('--types', null), K = +opt('--k', '4'), L = +opt('--L', '8'), w = +opt('--w', '2');
 const skipFile = opt('--skip', null), radius = +opt('--radius', '3');
+// --pins all: also the flip-flop outputs (XQ, YQ) as sources and BX, BY, CE, SR as sinks
+const allPins = opt('--pins', 'lut') === 'all';
 let seed = +opt('--seed', '1');
 const [xdlrc, out] = args;
 const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x80000000; };
@@ -44,8 +46,8 @@ for (const [t, tile] of g.tiles.entries()) for (const s of tile.sites) {
   for (const [pin, { wire }] of Object.entries(s.pins)) {
     const n = g.node(t, wire);
     const info = { site: s.name, type: s.type, tile: tile.name, t, pin };
-    if (pin === 'X' || pin === 'Y') srcPin.set(n, info);
-    if (/^[FG][1-4]$/.test(pin)) sinkPin.set(n, info);
+    if (pin === 'X' || pin === 'Y' || (allPins && (pin === 'XQ' || pin === 'YQ'))) srcPin.set(n, info);
+    if (/^[FG][1-4]$/.test(pin) || (allPins && /^(BX|BY|CE|SR)$/.test(pin))) sinkPin.set(n, info);
   }
 }
 const used = new Set();   // nodes taken by a net
@@ -126,6 +128,15 @@ const inst = s => {
   const cfg = ['F:' + s + '_f:#LUT:D=(A1*A2*A3*A4)', 'G:' + s + '_g:#LUT:D=(A1*A2*A3*A4)'];
   if (u.out.has('X')) cfg.push('FXMUX::F', 'XUSED::0');
   if (u.out.has('Y')) cfg.push('GYMUX::G', 'YUSED::0');
+  // flip-flops when their output or a control input is used
+  if (allPins && [...u.out, ...u.in].some(p => /^(XQ|YQ|BX|BY|CE|SR)$/.test(p))) {
+    cfg.push(`FFX:${s}_x:#FF`, `FFY:${s}_y:#FF`, 'FFX_INIT_ATTR::INIT0', 'FFY_INIT_ATTR::INIT0', 'FFX_SR_ATTR::SRLOW', 'FFY_SR_ATTR::SRLOW', 'SYNC_ATTR::ASYNC', 'CLKINV::CLK');
+    cfg.push(u.in.has('BX') ? 'DXMUX::0' : 'DXMUX::1', u.in.has('BY') ? 'DYMUX::0' : 'DYMUX::1');
+    if (u.in.has('BX')) cfg.push('BXINV::BX');
+    if (u.in.has('BY')) cfg.push('BYINV::BY');
+    if (u.in.has('CE')) cfg.push('CEINV::CE');
+    if (u.in.has('SR')) cfg.push('SRINV::SR', ...(u.type === 'SLICEM' ? ['SRFFMUX::0'] : []));
+  }
   return `inst "${s}" "${u.type}",placed ${u.tile} ${s} ,\n  cfg " ${cfg.join(' ')} "\n  ;`;
 };
 const write = (file, v) => {

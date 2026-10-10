@@ -122,6 +122,7 @@ export function frameData(design, db, device = XC3S250E) {
   const { feats, luts } = designFeatures(design, db);
   const unknown = [];
   const seen = new Set();
+  const clears = [];   // bits a feature clears are cleared after all the bits are set
   for (const { tile, feature } of feats) {
     const t = tileOf(tile, db);
     const base = t && tileBase(t, db);
@@ -132,8 +133,12 @@ export function frameData(design, db, device = XC3S250E) {
       if (!seen.has(k)) { seen.add(k); unknown.push({ tile, feature }); }
       continue;
     }
-    for (const s of bits) { const [df, dbit, v] = parseBit(s); setBit(frames, fw, base.frame + df, base.bit + dbit, v); }
+    for (const s of bits) {
+      const [df, dbit, v] = parseBit(s);
+      if (v) setBit(frames, fw, base.frame + df, base.bit + dbit, 1); else clears.push([base.frame + df, base.bit + dbit]);
+    }
   }
+  for (const [f, b] of clears) setBit(frames, fw, f, b, 0);
   // LUT contents: 16 bits from the LUT's first bit, in address order, stored inverted (LUT G: the
   // 16 bits before LUT F)
   for (const { site, lut, bits } of luts) {

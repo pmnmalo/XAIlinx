@@ -1,13 +1,15 @@
 // I/O settings: every bonded pad of the package used at once, as an output (driven by a slice) or as
-// an input (to a slice), routed by router.mjs. Each design changes one setting on the pads with one
-// index in their tile (0, 1 or 2), so the bits of each change are found per tile type and index by
-// comparing with the base design of the same mode (ana-iob.mjs).
-//   node gen-iob.mjs dev-full.xdlrc outdir
+// an input (to a slice), routed by router.mjs. Each variant changes one setting on one pad per tile,
+// different pads and changes in different tiles (ana-iob.mjs compares it with the base design).
+// With --sparse: designs that use only the pads with one index (0-2) in every other I/O tile (an I/O
+// tile also sets bits in the column before its own), in LVCMOS33 and LVCMOS25, for the residual
+// analysis of the settings themselves (ana-residual.mjs).
+//   node gen-iob.mjs dev-full.xdlrc outdir [--sparse]
 import fs from 'node:fs';
 import { loadGraph } from './xdlrc-graph.mjs';
 import { makeRouter } from './router.mjs';
 
-const [xdlrc, out] = process.argv.slice(2);
+const [xdlrc, out, mode] = process.argv.slice(2);
 const g = loadGraph(xdlrc);
 const R = makeRouter(g, { radius: 4, maxDepth: 9 });
 fs.mkdirSync(out, { recursive: true });
@@ -53,15 +55,18 @@ const route = mode => {
 };
 const OUT = { DRIVEATTRBOX: '12', IOATTRBOX: 'LVCMOS33', O1INV: 'O1', OMUX: 'O1', SLEW: 'SLOW' };
 const IN = { IDELMUX: '1', IMUX: '1', IOATTRBOX: 'LVCMOS33' };
-const write = (name, r, changes) => {
+const write = (name, r, changes, keep = () => true) => {
   const txt = [`design "iob" xc3s250ecp132-4 v3.2 ,\n  cfg "";`];
+  const nets = r.nets.filter(n => keep(n.pad));
+  const used = new Set(nets.map(n => n.text.match(/(?:outpin|inpin) "(SLICE_X\d+Y\d+)"/)[1]));
   for (const [s, u] of r.slices) {
+    if (!used.has(s)) continue;
     const cfg = [`F:${s}_f:#LUT:D=(A1*A2*A3*A4)`, `G:${s}_g:#LUT:D=(A1*A2*A3*A4)`];
     if (u.out.has('X')) cfg.push('FXMUX::F', 'XUSED::0');
     if (u.out.has('Y')) cfg.push('GYMUX::G', 'YUSED::0');
     txt.push(`inst "${s}" "${u.type}",placed ${u.tile} ${s} ,\n  cfg " ${cfg.join(' ')} "\n  ;`);
   }
-  for (const n of r.nets) {
+  for (const n of nets) {
     const p = n.pad;
     const set = { ...(n.out ? OUT : IN) };
     const ch = changes.get(p.site) || {};
@@ -73,6 +78,17 @@ const write = (name, r, changes) => {
   fs.writeFileSync(`${out}/${name}.xdl`, txt.join('\n') + '\n');
 };
 const ro = route('out'), ri = route('in');
+if (mode === '--sparse') {
+  const parity = p => { const m = /X(\d+)Y(\d+)$/.exec(p.tile); return (+m[1] + +m[2]) & 1; };
+  let n = 0;
+  for (const [m, r] of [['O', ro], ['I', ri]]) for (const par of [0, 1]) for (const k of [0, 1, 2]) for (const std of ['LVCMOS33', 'LVCMOS25']) {
+    const changes = new Map(pads.map(p => [p.site, { IOATTRBOX: std }]));
+    write(`${m}_P${par}_K${k}_${std}`, r, changes, p => p.idx === k && parity(p) === par);
+    n++;
+  }
+  console.log(`${n} sparse designs`);
+  process.exit(0);
+}
 write('O_BASE', ro, new Map());
 write('I_BASE', ri, new Map());
 const VO = {
