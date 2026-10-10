@@ -81,7 +81,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: UI smoke test (headless Chrome)
-        run: node --test --test-concurrency=1 test/ui/app.test.js test/ui/focus.test.js test/ui/synth-open.test.js
+        run: node --test --test-concurrency=1 test/ui/modern.test.js test/ui/focus.test.js test/ui/synth-open.test.js
         timeout-minutes: 15
       - name: Release zip
         if: runner.os == 'macOS'
