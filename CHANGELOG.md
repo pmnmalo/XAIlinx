@@ -36,6 +36,12 @@ the "What's new" text of its GitHub release.
   nothing behind (JS heap, DOM nodes and event listeners after garbage collection), and the page
   must stay within a memory budget. The same scenarios also run in WebKit, Safari's engine
   (`npm run test:webkit`, with Playwright), within a memory budget.
+- **Bitstream writer** for the Spartan-3E XC3S250E (`core/fpga/bitstream.js`, `bitgen.js`, first
+  version): a placed and routed design to a `.bit` file, from a bit database measured by black-box
+  experiments (`research/s3e-bitstream/db`). For switch -> LED, blinky and lab11 implemented by ISE,
+  the file is byte-identical to ISE's bitgen (CRC on and off). Designs placed and routed by Silinx
+  still use a few routing switches not measured yet. The package's pads come from the device
+  description built from the user's own ISE, never from the repository.
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - How the open toolchain for the Spartan-3E is being developed: `docs/OPEN-TOOLCHAIN.md`, and the
   first experiments in `research/s3e-bitstream`.
