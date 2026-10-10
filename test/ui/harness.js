@@ -225,6 +225,7 @@ class PageBase {
     return r;
   }
   async click(target, opts = {}) {
+    debug(`click ${typeof target === 'string' ? target : JSON.stringify(target)}${opts.index ? ` #${opts.index}` : ''}${opts.text != null ? ` '${opts.text}'` : ''}`);
     const { x, y } = await this.point(target, opts);
     const button = opts.button || 'left';
     await this.mouse('mouseMoved', x, y);
@@ -261,6 +262,7 @@ class PageBase {
   // ---- Silinx helpers
   /** Open a menu of the menu bar and return its item labels. */
   async openMenu(label) {
+    debug(`menu ${label}`);
     await this.closeMenus();
     const items = await this.eval(() => [...document.querySelectorAll('#menubar .item')].map((e) => e.textContent.trim()));
     const idx = typeof label === 'number' ? label : items.indexOf(label);
@@ -292,6 +294,7 @@ class PageBase {
   }
   /** Click a button of the topmost dialog by its label. */
   async dialogButton(label) {
+    debug(`dialog button ${label}`);
     await this.waitFor((l) => { const d = [...document.querySelectorAll('.dlg-overlay')].pop(); return d && [...d.querySelectorAll('.dlg-buttons .btn')].some((b) => b.textContent.trim() === l && !b.disabled); }, [label], { what: `dialog button '${label}'` });
     const idx = await this.eval((l) => {
       const all = [...document.querySelectorAll('.dlg-overlay .dlg-buttons .btn')];
