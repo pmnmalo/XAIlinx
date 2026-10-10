@@ -28,6 +28,9 @@ export const ALLOW = [
   [/^test\/fixtures\/(ise|netgen)\//, 'Xilinx file', 'ISE reports / netgen models of test designs, kept as parser fixtures'],
 ];
 
+// the rules themselves and their tests hold examples of what they look for
+export const SELF = ['scripts/check-private-data.mjs', 'test/private-data.test.js'];
+
 const allowed = (file, text) => ALLOW.some(([f, t]) =>
   (typeof f === 'string' ? f === file : f.test(file)) && (typeof t === 'string' ? t === text : t.test(text)));
 
@@ -99,6 +102,7 @@ export function scanRepo(root = ROOT) {
   const files = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }).split('\0').filter(Boolean);
   const out = [];
   for (const f of files) {
+    if (SELF.includes(f)) continue;
     const p = path.join(root, f);
     if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) continue;
     const buf = fs.readFileSync(p);
@@ -115,8 +119,8 @@ export function scanHistory(root = ROOT) {
   for (const line of log.split('\n')) {
     if (line.startsWith('@@COMMIT ')) { commit = line.slice(9, 16); msg = []; continue; }
     if (msg) { if (line === '@@END') { out.push(...scanText(`(message of ${commit})`, msg.join('\n')).map((x) => ({ ...x, commit }))); msg = null; } else msg.push(line); continue; }
-    if (line.startsWith('+++ b/')) { file = line.slice(6); out.push(...scanText(file, '', { whole: false }).filter((x) => x.line === 0).map((x) => ({ ...x, commit }))); continue; }
-    if (line.startsWith('+') && !line.startsWith('+++')) out.push(...scanText(file, line.slice(1), { whole: false }).filter((x) => x.line).map((x) => ({ ...x, commit })));
+    if (line.startsWith('+++ b/')) { file = SELF.includes(line.slice(6)) ? null : line.slice(6); if (!file) continue; out.push(...scanText(file, '', { whole: false }).filter((x) => x.line === 0).map((x) => ({ ...x, commit }))); continue; }
+    if (file && line.startsWith('+') && !line.startsWith('+++')) out.push(...scanText(file, line.slice(1), { whole: false }).filter((x) => x.line).map((x) => ({ ...x, commit })));
   }
   // one report per finding
   const seen = new Set();

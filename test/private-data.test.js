@@ -3,13 +3,15 @@
 // The examples below are built at run time, so that this file does not hold what it looks for.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scanRepo, scanText } from '../scripts/check-private-data.mjs';
+import { scanRepo, scanText, SELF } from '../scripts/check-private-data.mjs';
 
 const kinds = (file, text) => scanText(file, text).map((x) => `${x.kind}: ${x.text}`);
 const at = '@', dot = (...p) => p.join('.');
 
 test('the tracked files hold no private data, secrets or Xilinx files', () => {
   const found = scanRepo();
+  // (the scanner and this file are left out: they hold examples of what is looked for)
+  assert.deepEqual(SELF, ['scripts/check-private-data.mjs', 'test/private-data.test.js']);   // and nothing else
   assert.deepEqual(found.map((x) => `${x.file}${x.line ? `:${x.line}` : ''}: ${x.kind}: ${x.text}`), [],
     'remove these (or, for a harmless match, add it with its reason to ALLOW in scripts/check-private-data.mjs)');
 });
