@@ -156,6 +156,42 @@ export function siteKind(inst, db) {
   return inst.type;
 }
 
+// general routing wires (doubles, hexes, long lines, the output multiplexers): a switch into one is
+// a multiplexer setting, never free
+const GENERAL_WIRE = /^([EWNS](2|6)(BEG|MID|END|[A-D])\d+|[EWNS]2END_[NS]\d+|L[HV]\d+|OMUX\w*)$/;
+
+/**
+ * What the database lets a router use, so that its output turns into a complete bitstream
+ * (core/fpga/route.js routeDesign options):
+ *   allowPip(tileName, from, to)   the PIP "from->to" (direction of the signal) is a feature of the
+ *                                  tile's type and the layout knows where the tile is; a feature
+ *                                  with no bits counts as known for dedicated wires (carry chain
+ *                                  COUT -> CIN, pin wires, the clock spines, the terminations), not
+ *                                  for a switch driving a general routing wire: the database has
+ *                                  such entries for the I/O and corner tiles, and at least one of
+ *                                  them is wrong (W6END4->E2BEG4 of the left I/O tiles sets 2 bits)
+ *   allowConstSource(kind, site)   a VCC site (no settings of its own) or a slice whose settings as
+ *                                  a GND source (USED, _GND_SOURCE:Y) are known
+ */
+export function knownRouting(db) {
+  const bitsOf = (tileName, feature) => {
+    const t = tileOf(tileName, db);
+    return t && tileBase(t, db) ? db.types[t.type]?.feats.get(feature) : undefined;
+  };
+  const known = (tileName, feature) => !!bitsOf(tileName, feature);
+  return {
+    allowPip: (tileName, from, to) => {
+      const bits = bitsOf(tileName, `${from}->${to}`);
+      return !!bits && (bits.length > 0 || !GENERAL_WIRE.test(to));
+    },
+    allowConstSource: (kind, site) => {
+      if (kind === 'vcc') return site.type === 'VCC';
+      const kindOf = siteKind({ site: site.name, type: site.type }, db);
+      return !!kindOf && known(site.tileName, `${kindOf}:USED`) && known(site.tileName, `${kindOf}:_GND_SOURCE:Y`);
+    },
+  };
+}
+
 /** The frame data of a design: { frames, unknown: [{ tile, feature }] }. */
 export function frameData(design, db, device = XC3S250E) {
   const fw = device.frameWords;

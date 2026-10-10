@@ -93,6 +93,7 @@
 "COUT1->CIN3":[],
 "COUT1->COUT_N1":[],
 "COUT1->YB1":[],
+"COUT2->COUT_N1":[],
 "COUT2->COUT_N2":[],
 "COUT3->COUT_N3":[],
 "E2BEG0->BX0":["11,36","12,32"],

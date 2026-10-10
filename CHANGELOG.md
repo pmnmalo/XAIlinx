@@ -54,6 +54,11 @@ the "What's new" text of its GitHub release.
   buffers, I/O…); the netlist is saved in `build/open/` (JSON and Verilog). Generated HDL files in
   `build/` are no longer added to the project's sources. (The app's download grows by the Yosys
   WebAssembly module, about 75 MB unpacked.)
+- **Fully open bitstreams** for the Spartan-3E XC3S250E: the router can keep to the routing switches
+  whose bits the database knows, and the packer can bring a carry out through an XOR stage instead
+  of the unmeasured XB / YB pins, so blinky and lab11 go from VHDL / Verilog to a `.bit` file with no
+  Xilinx tool at all (`research/s3e-route/open-flow.mjs`). Checked against ISE: 0 DRC errors and a
+  bitstream byte-identical to ISE's bitgen for the same routed design (8 placements, CRC on and off).
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - How the open toolchain for the Spartan-3E is being developed: `docs/OPEN-TOOLCHAIN.md`, and the
   first experiments in `research/s3e-bitstream`.

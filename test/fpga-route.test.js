@@ -136,6 +136,44 @@ test('routeDesign: GND without a source comes from the Y output of the nearest u
   assert.match(r2.errors[0], /net g: no free site for a gnd source/);
 });
 
+test('routeDesign allowPip: only the allowed PIPs (direction of the signal); a sink unreachable on them fails, listed', () => {
+  // E2BEG0 forbidden: a1.X -> b1.F1 takes the longer way by E2BEG1 + HOP1
+  const seen = [];
+  const allowPip = (tile, from, to) => { seen.push(`${tile} ${from}->${to}`); return to !== 'E2BEG0'; };
+  const r = routeDesign(design(net('na', '', [['a1', 'X']], [['b1', 'F1']])), device, { allowPip });
+  assert.deepEqual(r.failed, []);
+  assert.deepEqual(pipsOf(r, 'na'), ['CLB_X1Y0 OMUX1 -> E2BEG1', 'CLB_X1Y0 X1 -> OMUX1', 'CLB_X2Y0 E2END1 -> HOP1', 'CLB_X2Y0 HOP1 -> F1_B_PINWIRE1']);
+  assert.ok(checkRouting(r.design, device).ok);
+  // a bidirectional PIP is offered in the direction it would be used: BX0 -> BX1 (written BX0 =- BX1)
+  routeDesign(design(net('bx', '', [['pad', 'I']], [['a1', 'BX']])), device, { allowPip });
+  assert.ok(seen.includes('CLB_X1Y0 BX0->BX1'));
+  // nothing allowed out of the source: the net fails, its sinks listed
+  const r2 = routeDesign(design(net('nb', '', [['a0', 'X']], [['b0', 'F1'], ['b1', 'F1']])), device, { allowPip: () => false });
+  assert.deepEqual(r2.failed, ['nb']);
+  assert.deepEqual(r2.unreached, [{ net: 'nb', inst: 'b0', pin: 'F1' }, { net: 'nb', inst: 'b1', pin: 'F1' }]);
+  assert.deepEqual(routeDesign(design(net('nc', '', [['a0', 'X']], [['b0', 'F1']])), device).unreached, []);
+});
+
+test('routeDesign allowPip / allowConstSource: a VCC sink reached through an allowed PIP, GND only from allowed slices', () => {
+  // VCC_PINWIRE -> F2_B_PINWIRE1 of CLB_X2Y0 forbidden: never used; this small device has no other
+  // way to b1.F2, so the net fails and says which sink
+  const allowPip = (tile, from, to) => !(tile === 'CLB_X2Y0' && from === 'VCC_PINWIRE' && to === 'F2_B_PINWIRE1');
+  const r = routeDesign(design(net('pwr', 'vcc', [], [['b1', 'F2']])), device, { allowPip });
+  assert.ok(!r.design.nets.some(n => n.pips.some(p => p.tile === 'CLB_X2Y0' && p.from === 'VCC_PINWIRE' && p.to === 'F2_B_PINWIRE1')));
+  assert.deepEqual(r.unreached, [{ net: 'pwr_0', inst: 'b1', pin: 'F2' }]);
+  // allowed: the PIP of the sink's own tile, as without the option
+  const r1 = routeDesign(design(net('pwr', 'vcc', [], [['b1', 'F2']])), device, { allowPip: () => true });
+  assert.deepEqual(r1.design.nets.filter(n => n.type === 'vcc').map(n => n.pips.map(p => `${p.tile} ${p.from} -> ${p.to}`)), [['CLB_X2Y0 VCC_PINWIRE -> F2_B_PINWIRE1']]);
+  // the only free slice not allowed as a GND source: reported like no free slice
+  const insts = INSTS.replace(/inst "a1"[^;]*;\n/, '');
+  const d = parseXdl(`design "t" xc3s50etq144-4 v3.2 ,\n  cfg "";\n${insts}${net('g', 'gnd', [], [['b0', 'F1']])}`);
+  const asked = [];
+  const r2 = routeDesign(d, device, { allowConstSource: (kind, site) => { asked.push([kind, site.name, site.tileName, site.type]); return false; } });
+  assert.deepEqual(asked, [['gnd', 'SLICE_X0Y1', 'CLB_X1Y0', 'SLICEL']]);
+  assert.match(r2.errors[0], /net g: no free site for a gnd source/);
+  assert.deepEqual(routeDesign(d, device, { allowConstSource: () => true }).errors, []);
+});
+
 test('routeDesign: existing PIPs are replaced; nets without sinks get none; the input design is not changed', () => {
   const d = design(net('n', '', [['a0', 'X']], [['b0', 'F1']], ['CLB_X1Y0 X1 -> OMUX1']) + net('empty', '', [['a1', 'X']], []));
   const r = routeDesign(d, device);
