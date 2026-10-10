@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { scratchEnv, startApp, makeFakes, sleep, HERE } from './server-helpers.js';
+import { scratchEnv, startApp, makeFakes, sleep, HERE, POSIX_ONLY } from './server-helpers.js';
 import { createZip, readZip, textOf } from '../core/zip.js';
 
 const codec = { deflate: d => zlib.deflateRawSync(d), inflate: d => zlib.inflateRawSync(d) };
@@ -177,7 +177,7 @@ test('files: missing / traversing / absolute paths are refused, missing files ar
   // writing over a folder is an internal error (500), reported as JSON
   r = await call('PUT', '/projects/Trav/file?path=src', 'x');
   assert.equal(r.status, 500);
-  assert.match(r.body.error, /EISDIR|illegal operation/i);
+  assert.match(r.body.error, /EISDIR|EPERM|illegal operation/i);
   // deleting a file that is not there is fine (idempotent)
   assert.equal((await call('DELETE', '/projects/Trav/file?path=nothing.txt')).status, 200);
   // nothing escaped the project
@@ -652,7 +652,7 @@ test('zip: ISE schematics are converted on import and exported back as .sch (wit
 // server start / browser
 // ------------------------------------------------------------------------------------------------
 
-test('startServer listens (and rejects a used port); openBrowser runs the platform opener', async () => {
+test('startServer listens (and rejects a used port); openBrowser runs the platform opener', { skip: POSIX_ONLY }, async () => {
   const { startServer, openBrowser } = await import('../server/server.js');
   const log = console.log;
   const out = [];

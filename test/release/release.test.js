@@ -68,9 +68,10 @@ test('release zip: the app with its production dependencies only, Yosys\'s WebAs
   const wasm = fs.readdirSync(path.join(APP, 'node_modules/@yowasp/yosys/gen')).filter((f) => f.endsWith('.wasm'));
   const wasmMB = wasm.reduce((n, f) => n + fs.statSync(path.join(APP, 'node_modules/@yowasp/yosys/gen', f)).size, 0) / 1048576;
   assert.ok(wasm.includes('yosys.core.wasm') && wasmMB > 10, `Yosys's WebAssembly: ${wasm} (${wasmMB.toFixed(1)} MB)`);
-  // no development dependencies, CI files or build output
-  for (const f of ['node_modules/playwright', 'node_modules/playwright-core', 'node_modules/esbuild', 'node_modules/@esbuild', '.github', 'dist', 'out'])
-    assert.ok(!exists(f), `${f} must not be in the release`);
+  // no development dependencies, CI files or build output (an empty folder left by npm is no file)
+  const files = (rel) => { const p = path.join(APP, rel); return !fs.existsSync(p) ? [] : fs.statSync(p).isDirectory() ? fs.readdirSync(p, { recursive: true }).filter((f) => fs.statSync(path.join(p, f)).isFile()) : [rel]; };
+  for (const f of ['node_modules/playwright', 'node_modules/playwright-core', 'node_modules/esbuild', 'node_modules/@esbuild', 'node_modules/fsevents', '.github', 'dist', 'out'])
+    assert.deepEqual(files(f).slice(0, 5), [], `${f} must not be in the release`);
   assert.equal(JSON.parse(fs.readFileSync(path.join(APP, 'package.json'), 'utf8')).version, VERSION);
   // every package shipped has its notice (and nothing listed is missing)
   const { THIRD_PARTY } = await import(pathToFileURL(path.join(APP, 'core/third-party.js')).href);

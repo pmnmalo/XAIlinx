@@ -15,7 +15,7 @@ const STANDALONE = new Set(['codemirror', 'elkjs']);
 const SOURCE = { elkjs: 'https://github.com/kieler/elkjs' };
 
 function productionDeps() {
-  const tree = JSON.parse(execFileSync('npm', ['ls', '--omit=dev', '--all', '--json'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+  const tree = JSON.parse(execFileSync('npm', ['ls', '--omit=dev', '--all', '--json'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], shell: process.platform === 'win32' }));
   const seen = new Map();
   const walk = (deps, dir) => {
     for (const [name, info] of Object.entries(deps || {})) {

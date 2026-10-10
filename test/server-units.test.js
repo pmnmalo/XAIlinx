@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { scratchEnv, waitJob, sleep, HERE } from './server-helpers.js';
+import { scratchEnv, waitJob, sleep, HERE, POSIX_ONLY } from './server-helpers.js';
 
 let tmp;
 before(async () => { tmp = await scratchEnv('silinx-units-test-'); });
@@ -62,7 +62,7 @@ test('jobs: kill errors are swallowed (process already gone, no pid)', async () 
   assert.equal((await waitJob(jobs, job.id)).status, 'error');
 });
 
-test('jobs: a process that survives SIGTERM gets SIGKILL', async () => {
+test('jobs: a process that survives SIGTERM gets SIGKILL', { skip: POSIX_ONLY }, async () => {
   const job = jobs.createJob('t', j => jobs.runCommand(j, 'sh', ['-c', 'trap "" TERM; echo ready; while :; do sleep 1; done']));
   for (let i = 0; i < 500 && !jobs.getJob(job.id).lines.includes('ready'); i++) await sleep(10);
   // run the 3 s SIGKILL timer at once

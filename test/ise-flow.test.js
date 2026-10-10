@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
-import { scratchEnv, makeFakes, isolatedPath, startApp, waitJob, waitLine, writeConfig, makeBit } from './server-helpers.js';
+import { scratchEnv, makeFakes, isolatedPath, startApp, waitJob, waitLine, writeConfig, makeBit, POSIX_ONLY } from './server-helpers.js';
 
 let tmp, fakes, app, jobs, P, oldPath;
 const FAKE_ENV = ['FAKE_ISE_FAIL', 'FAKE_ISE_SLEEP', 'FAKE_ISE_LOG', 'FAKE_DOCKER_NO_IMAGE', 'FAKE_DOCKER_LOG', 'FAKE_SSH_LOG', 'FAKE_SSH_FAIL'];
@@ -49,7 +49,7 @@ async function implement(name, body = {}) {
   return r.body.job;
 }
 
-test('docker mode: the whole flow (incl. optional steps) runs, steps are tracked and every report is parsed', async () => {
+test('docker mode: the whole flow (incl. optional steps) runs, steps are tracked and every report is parsed', { skip: POSIX_ONLY }, async () => {
   await writeConfig({ mode: 'docker', docker: { image: 'silinx/ise:14.7' } });
   const tc = await app.call('GET', '/toolchain');
   assert.equal(tc.body.ise.available, true, tc.body.ise.reason);
@@ -108,7 +108,7 @@ test('docker mode: the whole flow (incl. optional steps) runs, steps are tracked
   assert.match(r3.body.bit.header.error, /not a Xilinx|truncated/);
 });
 
-test('docker mode: a failing step stops the flow, is reported, and the reports written so far are parsed', async () => {
+test('docker mode: a failing step stops the flow, is reported, and the reports written so far are parsed', { skip: POSIX_ONLY }, async () => {
   await writeConfig({ mode: 'docker', docker: { image: 'silinx/ise:14.7' } });
   await makeProject('Flow2');
   process.env.FAKE_ISE_FAIL = 'map';
@@ -143,7 +143,7 @@ test('docker mode: a missing image or docker command makes ISE unavailable (scri
   assert.match(j2.error, /no docker image configured/);
 });
 
-test('local mode: run.sh runs the ISE tools found on PATH; ports without LOC get pins from partgen', async () => {
+test('local mode: run.sh runs the ISE tools found on PATH; ports without LOC get pins from partgen', { skip: POSIX_ONLY }, async () => {
   await writeConfig({ mode: 'local' });
   const tc = await app.call('GET', '/toolchain');
   assert.equal(tc.body.ise.available, true);
@@ -178,7 +178,7 @@ test('local mode: a board project with unconstrained ports is refused before run
   assert.match(j.error, /4 top-level port bit\(s\) have no pin location \(LOC\) for the basys2 board: sw<0>, sw<1>, led<0>, led<1>/);
 });
 
-test('ssh mode: build dir is uploaded with tar over ssh, run remotely and the results downloaded', async () => {
+test('ssh mode: build dir is uploaded with tar over ssh, run remotely and the results downloaded', { skip: POSIX_ONLY }, async () => {
   await writeConfig({ mode: 'ssh', ssh: { host: 'build-box', user: 'me', port: 2222, identity: '/k/id', remoteDir: '~/sx/', sshArgs: ['-o', 'StrictHostKeyChecking=no'] } });
   const tc = await app.call('GET', '/toolchain');
   assert.equal(tc.body.ise.available, true, tc.body.ise.reason);
@@ -204,7 +204,7 @@ test('ssh mode: build dir is uploaded with tar over ssh, run remotely and the re
   assert.ok(j2.lines.some(l => /Connection refused/.test(l)));
 });
 
-test('ssh mode with a docker image on the remote host: the flow runs in that image there', async () => {
+test('ssh mode with a docker image on the remote host: the flow runs in that image there', { skip: POSIX_ONLY }, async () => {
   await writeConfig({ mode: 'ssh', ssh: { host: 'mini', user: 'dev', image: 'xilinx/ise:14.7' } });
   const tc = await app.call('GET', '/toolchain');
   assert.equal(tc.body.ise.available, true, tc.body.ise.reason);
@@ -224,7 +224,7 @@ test('ssh mode with a docker image on the remote host: the flow runs in that ima
   assert.match(await fs.readFile(process.env.FAKE_DOCKER_LOG, 'utf8'), /^run --rm -v .*silinx-build\/FlowDock:\/work -w \/work -e ISE_SETTINGS=\S+ xilinx\/ise:14.7 bash run.sh synth$/m);
 });
 
-test('ssh mode: not configured / remote dir rejected', async () => {
+test('ssh mode: not configured / remote dir rejected', { skip: POSIX_ONLY }, async () => {
   await writeConfig({ mode: 'ssh', ssh: { host: '' } });
   assert.match((await app.call('GET', '/toolchain')).body.ise.reason, /no ssh host configured/);
   await writeConfig({ mode: 'ssh', ssh: { host: 'box', remoteDir: 'a b' } });
@@ -234,7 +234,7 @@ test('ssh mode: not configured / remote dir rejected', async () => {
   assert.match(j.error, /invalid ssh.remoteDir/);
 });
 
-test('cancel: a running flow is killed, the job ends cancelled and a new run is accepted', async () => {
+test('cancel: a running flow is killed, the job ends cancelled and a new run is accepted', { skip: POSIX_ONLY }, async () => {
   await writeConfig({ mode: 'docker', docker: { image: 'silinx/ise:14.7' } });
   await makeProject('Flow8');
   process.env.FAKE_ISE_SLEEP = 'par';

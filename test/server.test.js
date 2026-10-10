@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { POSIX_ONLY } from './server-helpers.js';
 
 let tmp, srv, base, P, jobs;
 before(async () => {
@@ -116,7 +117,7 @@ test('deleting a folder removes it and unregisters its files; the project root c
   assert.ok((await P.readProject('Del')).files.length === 1);
 });
 
-test('a second implementation of the same project is refused with 409 while the first runs', async () => {
+test('a second implementation of the same project is refused with 409 while the first runs', { skip: POSIX_ONLY }, async () => {
   // fake "docker" that just waits: the first job stays running, nothing real is executed
   const fake = path.join(tmp, 'fake-docker.sh');
   await fs.writeFile(fake, '#!/bin/sh\nsleep 20\n', { mode: 0o755 });

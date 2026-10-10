@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { POSIX_ONLY } from './server-helpers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIX = path.join(HERE, 'fixtures', 'ise');
@@ -128,7 +129,7 @@ test('run.sh contents and syntax', async () => {
   assert.equal(r.status, 0, r.stderr?.toString());
 });
 
-test('run.sh fails cleanly without ISE and runs selected steps with stub tools', async () => {
+test('run.sh fails cleanly without ISE and runs selected steps with stub tools', { skip: POSIX_ONLY }, async () => {
   const dir = path.join(tmp, 'stub');
   const bin = path.join(dir, 'bin');
   await fs.mkdir(bin, { recursive: true });
@@ -189,7 +190,8 @@ test('generateBuild creates a self-contained build dir', async () => {
   assert.ok(!fss.existsSync(path.join(b, 'src/sim/tb_top.v')), 'sim files are not copied');
   assert.match(await fs.readFile(path.join(b, 'top.ucf'), 'utf8'), /C9/);
   assert.match(await fs.readFile(path.join(b, 'top.xst'), 'utf8'), /-vlgincdir \{ "src\/src" \}/);
-  assert.ok((fss.statSync(path.join(b, 'run.sh')).mode & 0o111) !== 0);
+  // executable (Windows has no execute bit)
+  if (process.platform !== 'win32') assert.ok((fss.statSync(path.join(b, 'run.sh')).mode & 0o111) !== 0);
   assert.deepEqual(g.warnings, []);
   await assert.rejects(ise.generateBuild({ ...project, top: '' }, dir), /no top module/);
   await assert.rejects(ise.generateBuild({ ...project, device: { part: 'xc3s100e', package: 'fg320', speed: '-4' } }, dir), /not available/);

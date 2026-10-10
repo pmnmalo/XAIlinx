@@ -17,6 +17,12 @@ export const FIX_SERVER = path.join(HERE, 'fixtures', 'server');
 
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/**
+ * `skip` reason of the tests that run the fake tools (POSIX sh scripts started through their #!
+ * line) or rely on POSIX signals: Windows runs neither. What they cover there is the same code.
+ */
+export const POSIX_ONLY = process.platform === 'win32' ? 'fake tools are POSIX shell scripts (and POSIX signals): not on Windows' : false;
+
 /** A minimal but valid Xilinx .bit file. */
 export function makeBit({ design = 'top.ncd;UserID=0xFFFFFFFF', part = '3s250ecp132', date = '2025/10/01', time = '10:11:20', data = Buffer.from([0xff, 0xff, 0xaa, 0x99]) } = {}) {
   const field = (k, s) => { const b = Buffer.from(s + '\0', 'latin1'); const h = Buffer.alloc(3); h[0] = k.charCodeAt(0); h.writeUInt16BE(b.length, 1); return Buffer.concat([h, b]); };

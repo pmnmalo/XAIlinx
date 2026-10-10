@@ -9,7 +9,7 @@ import path from 'node:path';
 import http from 'node:http';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
-import { scratchEnv, makeFakes, isolatedPath, startApp, sleep, ROOT } from './server-helpers.js';
+import { scratchEnv, makeFakes, isolatedPath, startApp, sleep, ROOT, POSIX_ONLY } from './server-helpers.js';
 
 const CLI = path.join(ROOT, 'bin', 'silinx-ise.js');
 // lets a killed `serve` exit normally (so its coverage is written)
@@ -210,7 +210,7 @@ test('ucf: unknown / missing board and a top that does not elaborate exit 1', as
 // toolchain
 // ------------------------------------------------------------------------------------------------
 
-test('toolchain: report, --docker configuration (available / not available)', async () => {
+test('toolchain: report, --docker configuration (available / not available)', { skip: POSIX_ONLY }, async () => {
   let r = await cli(['toolchain']);
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^ISE \(local\): NOT available - Xilinx ISE 14.7 not found/m);
@@ -247,7 +247,7 @@ test('toolchain: report, --docker configuration (available / not available)', as
 // serve
 // ------------------------------------------------------------------------------------------------
 
-test('serve: starts on the given port with the scratch workspace and opens the browser with --open', async () => {
+test('serve: starts on the given port with the scratch workspace and opens the browser with --open', { skip: POSIX_ONLY }, async () => {
   const port = await freePort();
   const s = await cliUntil(['serve', '--port', String(port), '--host', '127.0.0.1', '--open'], /Keep this window open/);
   try {
@@ -268,7 +268,7 @@ test('serve: starts on the given port with the scratch workspace and opens the b
   } finally { await stop(s2.proc); }
 });
 
-test('serve: port already used by Silinx -> "already running" (exit 0, opens it); by another program -> exit 1', async () => {
+test('serve: port already used by Silinx -> "already running" (exit 0, opens it); by another program -> exit 1', { skip: POSIX_ONLY }, async () => {
   const app = await startApp();
   try {
     const r = await cli(['serve', '--port', String(app.port), '--open']);

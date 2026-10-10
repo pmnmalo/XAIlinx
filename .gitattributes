@@ -1,3 +1,6 @@
+# LF in every checkout, Windows included (as in the release zip, packaged on Linux): the examples,
+# fixtures and generated files compare equal everywhere; the Windows scripts keep CRLF (below)
+* text=auto eol=lf
 *.sh text eol=lf
 docker/ise/* text eol=lf
 docker/ise/*.ps1 text eol=crlf
