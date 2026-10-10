@@ -24,7 +24,6 @@ for (const f of args.filter(a => a !== '--keep')) {
       n++;
     }
   }
-  if (add.pads) db.pads = { ...(db.pads || {}), ...add.pads };
   if (add.padFeatures) for (const [p, f] of Object.entries(add.padFeatures)) db.padFeatures = { ...(db.padFeatures || {}), [p]: { ...(db.padFeatures?.[p] || {}), ...f } };
 }
 for (const t of Object.values(db.types)) t.features = Object.fromEntries(Object.entries(t.features).sort(([a], [b]) => a.localeCompare(b)));

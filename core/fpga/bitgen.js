@@ -7,7 +7,8 @@
 // contents of a LUT. The positions come from the bit database (research/s3e-bitstream/db/*.json),
 // built by observing which bits ISE's bitgen sets for small test designs (docs/OPEN-TOOLCHAIN.md).
 //
-//   const db = makeDb({ layout, lut, tiles })          the JSON files of the database
+//   const db = makeDb({ layout, lut, tiles, pads })    the JSON files of the database; pads from
+//                                                      padsFromDevice(the user's device cache)
 //   const { bytes, unknown } = bitgen(xdlText, db, { name: 'top.ncd', crc: true })
 //
 // `unknown` lists the features of the design that the database does not know (their bits are not
@@ -15,8 +16,24 @@
 import { parseXdl, lutTable } from '../xdl.js';
 import { XC3S250E, writeBit, setBit } from './bitstream.js';
 
-/** Join the database files into one object with fast lookups. */
-export function makeDb({ layout, lut, tiles }) {
+/**
+ * The I/O sites of the package's pins: pad name -> [tile, index of the pad among the I/O sites of
+ * its tile (IOB, IBUF, DIFFM/DIFFS…, bonded or not)], so that an IOB's settings can be stored once
+ * per tile type (features IOB<index>:…). It comes from the device (core/fpga/device.js, built on the
+ * user's machine from their ISE's device report), never from the committed database.
+ */
+export function padsFromDevice(device) {
+  const pads = {};
+  for (const [site, [t, k]] of device.siteIndex) {
+    const types = device.templates[device.tileTemplate[t]].sites.map(s => s.type);
+    if (!/^(IOB|IBUF|DIFF[MS]I?)$/.test(types[k]) || device.tileSites[t][k][1] !== 1) continue;   // bonded pads
+    pads[site] = [device.tileNames[t], types.slice(0, k).filter(x => /^(IOB|IBUF|DIFF[MS]I?)$/.test(x)).length];
+  }
+  return pads;
+}
+
+/** Join the database files (and the pads of the device) into one object with fast lookups. */
+export function makeDb({ layout, lut, tiles, pads = {} }) {
   const types = {};
   for (const [type, t] of Object.entries(tiles.types || {})) {
     const feats = new Map();
@@ -26,7 +43,7 @@ export function makeDb({ layout, lut, tiles }) {
   // a tile type may share the features of another (same switch box)
   // (its own features, measured on it, come first)
   for (const t of Object.values(types)) if (t.sameAs && types[t.sameAs]) t.feats = new Map([...types[t.sameAs].feats, ...t.feats]);
-  return { layout, lut, tiles, types, pads: tiles.pads || {}, padFeats: tiles.padFeatures || {} };
+  return { layout, lut, tiles, types, pads, padFeats: tiles.padFeatures || {} };
 }
 
 /** The type and the X / Y of a tile from its name (CLB_X3Y5 -> CENTER_SMALL… / 3 / 5). */
