@@ -2,7 +2,7 @@
 // one only), About, Check for Updates, language switch, keyboard shortcuts.
 import { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { setupUi, uiTest, makeProject } from './harness.js';
+import { setupUi, uiTest, makeProject, chromeOnly } from './harness.js';
 import { TEXTS, untranslated } from './i18n-check.js';
 
 let env;
@@ -361,7 +361,7 @@ uiTest('at start-up the app checks for updates: a newer release opens the update
   await page.waitFor(() => window.SilinxApp && document.querySelector('#menubar .item'), [], { what: 'app boot' });
   await page.waitConsole(/is up to date \(latest release on GitHub/);
   assert.equal(await page.dialogCount(), 0);
-});
+}, { skip: chromeOnly });   // (Page.addScriptToEvaluateOnNewDocument and its removal)
 
 uiTest("update dialog: What's new lists the changes of every version newer than the one running (text only)", E, async (page) => {
   const version = await page.eval(async () => (await import('/core/version.js')).VERSION);

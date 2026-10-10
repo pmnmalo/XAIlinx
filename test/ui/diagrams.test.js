@@ -2,7 +2,7 @@
 // editor (states, decision, case box, connections, Generate HDL), print preview of a diagram.
 import { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { setupUi, uiTest, makeProject, readWs, waitDownload } from './harness.js';
+import { setupUi, uiTest, makeProject, readWs, waitDownload, chromeOnly } from './harness.js';
 import { compile, elaborate } from '../../core/compile.js';
 
 let env;
@@ -224,4 +224,4 @@ uiTest('print preview of a diagram: File ▸ Print… dialog, Save SVG, Print…
     if (!opened) await new Promise((r) => setTimeout(r, 100));
   }
   assert.ok(opened, 'the print page was opened');
-});
+}, { skip: chromeOnly });   // (the new page is found with Target.getTargets)
