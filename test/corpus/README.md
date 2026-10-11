@@ -85,9 +85,10 @@ module (one output kept, expression nodes replaced by an operand or a constant) 
 
     npm run test:vloghammer -- --seed 0 --count 1000 [--families expression,partsel] [--synth] [--out dir]
 
-Results: seeds 0–399 and 50–2049 (the 8 families in turn), Yosys's front end: 2399 of 2400
-agree; the one left (`wideexpr_00262`) is a Yosys difference (below). Seeds 100–163 and 200–599
-through Silinx's synthesis path: all agree.
+Results, Yosys's front end: `--seed 0 --count 400` and `--seed 50 --count 2000` (module indices
+0–299 of each family): 2399 of 2400 agree; the one left (`wideexpr_00262`) is a Yosys difference
+(below). Through Silinx's synthesis path (`--synth`): `--seed 100 --count 64` all agree,
+`--seed 200 --count 400` 399 of 400 (`partsel_00217`, open, below).
 
 ## Found and fixed
 
@@ -125,3 +126,11 @@ Synthesis front end (`core/synth-verilog.js`):
   extended from 32 bits with zeros (0x00000000ffffffff); Yosys gives all ones.
 - `{a[7], (1'(a >> 1) ^ 1'(a >> 0))}`: the xor of two 1-bit size casts is 1 bit wide; Yosys 0.68
   makes it 8 bits wide inside the concatenation (and drops a[7]).
+
+## Open
+
+- `partsel_00217` through the synthesis path: Silinx's generated text and Yosys disagree on an OR of
+  two size-cast bit selects (`32'(1'(x7 >> (29 - 32'(32'h4 + 32'(s3))))) | 32'($unsigned(1'(x6 >>
+  32'(32'h7 + 32'(s1)))))` with `x6 = 29'(4'(x4 >> 10))`, `x4 = 26'(7'(x1 >> 21))`); Silinx's
+  simulation of that text agrees with its simulation of the original, so it looks like another case
+  of Yosys sizing the operand of a size cast by its context; not worked around yet.
