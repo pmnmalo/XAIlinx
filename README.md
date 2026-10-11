@@ -243,7 +243,20 @@ SILINX_ISE_HOST=user@host npm run check:open-flow [projects…]   # the open flo
 node scripts/check-private-data.mjs [--history]                 # no personal data, secrets or Xilinx files (also run by npm test)
 npm run test:ui                                                  # UI tests (headless Chrome), incl. memory leaks
 npx playwright install webkit && npm run test:webkit             # memory in WebKit (Safari's engine)
+npx playwright install firefox webkit && npm run test:browsers   # the main UI flows in Firefox and WebKit
+SILINX_UI_BROWSER=firefox npm run test:ui                        # any UI test in firefox, webkit or chromium
+npm run test:release                                             # the release zip as users get it (see below)
+node scripts/package-release.mjs [version]                       # the release files into out/ (as release.yml)
 ```
+
+`npm run test:release` builds `silinx-ise-<version>.zip` with the release script, unzips it into a
+clean folder, checks its contents (production dependencies only, Yosys's WebAssembly, licence and
+notices, executable launchers) and size, starts it with its own launcher (`PORT` and
+`SILINX_NO_BROWSER=1` are honoured by the launchers) and runs *Synthesize - Yosys (open)* on the
+blinky example in headless Chrome, with every request to another host refused and reported (the
+app must work offline; the update check at start-up is the only one allowed). CI runs the unit
+tests and a UI smoke test on Linux, macOS and Windows, the release zip test, and the main UI flows
+in Firefox and WebKit.
 
 ### Standalone edition (a single HTML file)
 

@@ -13,6 +13,9 @@
     "test:ise": "SILINX_ISE_TESTS=1 node --test test/ise/*.test.js",
     "check:open-flow": "node scripts/check-open-flow.mjs",
     "test:webkit": "node --test test/webkit/*.test.js",
+    "test:release": "node --test test/release/*.test.js",
+    "test:browsers": "node scripts/test-browsers.mjs",
+    "package:release": "node scripts/package-release.mjs",
     "build:standalone": "node scripts/build-standalone.mjs",
     "version": "node scripts/sync-version.mjs && git add core/version.js"
   },

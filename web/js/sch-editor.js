@@ -1226,6 +1226,10 @@ export function mountSchEditor(container, opts = {}) {
     if (tool === 'io') { ioClick(pt); return; }
     const it = itemAt(e.target);
     if (it) {
+      // the item is drawn again below (render): without this, Safari (WebKit) sends the mousedown to
+      // the removed element and moves the keyboard focus to the page, so F1, Delete, Ctrl+C… did
+      // nothing after a click on a symbol (the focus stays on the editor, given above)
+      e.preventDefault();
       const k = `${it.kind}:${it.id}`;
       if (e.shiftKey || e.ctrlKey || e.metaKey) { if (sel.has(k)) sel.delete(k); else sel.add(k); render(); renderProps(); return; }
       if (!sel.has(k)) { sel = new Set([k]); render(); renderProps(); }

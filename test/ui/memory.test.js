@@ -6,10 +6,11 @@ import { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { setupUi, uiTest, makeProject, ROOT } from './harness.js';
+import { setupUi, uiTest, makeProject, ROOT, chromeOnly } from './harness.js';
 
 let env;
-before(async () => { env = await setupUi(); });
+// (forced garbage collection and heap metrics: Chrome DevTools Protocol)
+before(async () => { env = chromeOnly ? { skip: chromeOnly } : await setupUi(); });
 after(async () => { await env?.teardown?.(); });
 const E = () => env;
 

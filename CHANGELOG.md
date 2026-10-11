@@ -5,6 +5,11 @@ the "What's new" text of its GitHub release.
 
 ## 15.10.1
 
+- Fixed in Safari: after a click on a schematic symbol, an ASM chart block or a state of a state
+  diagram, the editor's keys (Delete, F1, Ctrl+C…) did nothing. Tests now run what users get: the
+  release zip is unzipped, started with its launcher and synthesizes in the browser without the
+  Internet; the main UI flows run in Firefox and WebKit as well as Chrome; the unit tests and the
+  launchers run on macOS and Windows as well as Linux.
 - The modern interface shows the version after "Silinx ISE" in its header, as the classic title bar does.
 - *Help ▸ About* and the README: Silinx ISE is described as developed to support the teaching of
   Digital Systems, without naming an institution (Silinx is the work of Pedro Maló, in his own time).

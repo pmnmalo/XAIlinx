@@ -7,9 +7,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { THIRD_PARTY } from '../core/third-party.js';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 test('third-party notices are up to date with the installed production dependencies', () => {
   const out = execFileSync(process.execPath, ['scripts/third-party.mjs', '--check'], { cwd: ROOT, encoding: 'utf8' });

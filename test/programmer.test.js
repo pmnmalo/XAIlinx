@@ -5,7 +5,7 @@ import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { scratchEnv, makeFakes, isolatedPath, startApp, waitJob, writeConfig, makeBit } from './server-helpers.js';
+import { scratchEnv, makeFakes, isolatedPath, startApp, waitJob, writeConfig, makeBit, POSIX_ONLY } from './server-helpers.js';
 
 let tmp, fakes, app, jobs, P, prog, tc, oldPath;
 const FAKE_ENV = ['FAKE_PROG_FAIL', 'FAKE_IMPACT_MODE', 'FAKE_PROG_LOG', 'FAKE_ADEPT_NODONE', 'FAKE_XCF_NOVERIFY', 'FAKE_ADEPT_FAIL', 'XILINX'];
@@ -51,7 +51,7 @@ const bitPath = name => path.join(P.projectDir('Prog'), 'build', name);
 // JTAG scan
 // ------------------------------------------------------------------------------------------------
 
-test('scan: every tool runs and its chain listing is parsed', async () => {
+test('scan: every tool runs and its chain listing is parsed', { skip: POSIX_ONLY }, async () => {
   let j = await run('/jtag/scan', { tool: 'openFPGALoader', cable: 'digilent_hs2' });
   assert.equal(j.status, 'ok', j.lines.join('\n'));
   assert.deepEqual(j.result.devices, [{ idcode: '0x41c22093', name: 'xc3s500e' }]);
@@ -79,7 +79,7 @@ test('scan: every tool runs and its chain listing is parsed', async () => {
   assert.ok(j.lines.some(l => /^NOTE: Open-source driver/.test(l)));
 });
 
-test('scan: failures (exit code, missing tool, bad options, unknown board)', async () => {
+test('scan: failures (exit code, missing tool, bad options, unknown board)', { skip: POSIX_ONLY }, async () => {
   process.env.FAKE_PROG_FAIL = 'xc3sprog';
   let j = await run('/jtag/scan', { tool: 'xc3sprog', cable: 'xpc' });
   assert.equal(j.status, 'error');
@@ -112,7 +112,7 @@ test('scan: failures (exit code, missing tool, bad options, unknown board)', asy
 // SRAM programming
 // ------------------------------------------------------------------------------------------------
 
-test('program: board default tool, bit header checks, explicit tools and positions', async () => {
+test('program: board default tool, bit header checks, explicit tools and positions', { skip: POSIX_ONLY }, async () => {
   process.env.FAKE_PROG_LOG = path.join(tmp, 'prog.log');
   let j = await run('/program', { project: 'Prog' });
   assert.equal(j.status, 'ok', j.lines.join('\n'));
@@ -153,7 +153,7 @@ test('program: board default tool, bit header checks, explicit tools and positio
   assert.match(log, /^djtgcfg prog -d Basys2 -i 0 -f .*top\.bit$/m);
 });
 
-test('program: iMPACT success / silent failure / error message; adepttool DONE check; tool exit code', async () => {
+test('program: iMPACT success / silent failure / error message; adepttool DONE check; tool exit code', { skip: POSIX_ONLY }, async () => {
   let j = await run('/program', { project: 'Prog', tool: 'impact' });
   assert.equal(j.status, 'ok', j.lines.join('\n'));
   assert.ok(j.lines.some(l => /assignFile -p 1 -file ".*top\.bit"/.test(l)));
@@ -181,7 +181,7 @@ test('program: iMPACT success / silent failure / error message; adepttool DONE c
   assert.deepEqual(j.result.commands.map(c => c.code), [1]);
 });
 
-test('program: iMPACT not on PATH is run through settings64.sh in a bash wrapper (or refused)', async () => {
+test('program: iMPACT not on PATH is run through settings64.sh in a bash wrapper (or refused)', { skip: POSIX_ONLY }, async () => {
   // an ISE install whose settings script puts impact on PATH; impact itself is not on PATH
   const root = path.join(tmp, 'Xilinx', '14.7', 'ISE_DS');
   const impactDir = path.join(tmp, 'impact-only');
@@ -231,7 +231,7 @@ test('program: request errors', async () => {
 // Platform Flash PROM
 // ------------------------------------------------------------------------------------------------
 
-test('prom: program (+verify, +reconfigure), verify, erase, read backup, reconfigure', async () => {
+test('prom: program (+verify, +reconfigure), verify, erase, read backup, reconfigure', { skip: POSIX_ONLY }, async () => {
   process.env.FAKE_PROG_LOG = path.join(tmp, 'prom.log');
   let j = await run('/prom', { project: 'Prog', op: 'program', reconfigure: true });
   assert.equal(j.status, 'ok', j.lines.join('\n'));
@@ -260,7 +260,7 @@ test('prom: program (+verify, +reconfigure), verify, erase, read backup, reconfi
   await P.updateProject('Prog', pj => { pj.device = { family: 'spartan3e', part: 'xc3s250e', package: 'cp132', speed: '-4' }; });
 });
 
-test('prom: failures and request errors', async () => {
+test('prom: failures and request errors', { skip: POSIX_ONLY }, async () => {
   process.env.FAKE_XCF_NOVERIFY = '1';
   let j = await run('/prom', { project: 'Prog', op: 'verify' });
   assert.equal(j.error, 'verification did not complete');
@@ -302,7 +302,7 @@ test('prom: failures and request errors', async () => {
 // toolchain detection (programmers, ISE install, versions)
 // ------------------------------------------------------------------------------------------------
 
-test('toolchain report: programmers found with versions, adepttool, ISE via settings64.sh / $XILINX', async () => {
+test('toolchain report: programmers found with versions, adepttool, ISE via settings64.sh / $XILINX', { skip: POSIX_ONLY }, async () => {
   let r = await app.call('GET', '/toolchain');
   const pr = r.body.programmers;
   assert.deepEqual([pr.openFPGALoader.found, pr.openFPGALoader.version], [true, '0.12.1']);

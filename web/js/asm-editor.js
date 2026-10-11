@@ -1011,7 +1011,10 @@ export function mountAsmEditor(container, { model, onChange, onGenerate } = {}) 
     const nodeEl = t.closest?.('[data-node]');
     const portEl = t.closest?.('[data-port]');
     const edgeEl = t.closest?.('[data-edge]');
-    const start = { cx: ev.clientX, cy: ev.clientY, w: toWorld(ev.clientX, ev.clientY) };
+    // a block or arrow is drawn again below (render): without this, Safari (WebKit) sends the
+    // mousedown to the removed element and moves the keyboard focus to the page (Delete did nothing)
+    if (nodeEl || edgeEl) ev.preventDefault();
+    const start ={ cx: ev.clientX, cy: ev.clientY, w: toWorld(ev.clientX, ev.clientY) };
     svg.setPointerCapture(ev.pointerId);
     if (ev.button === 1 || spaceDown) {
       drag = { mode: 'pan', start, tx: view.tx, ty: view.ty };

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { scratchEnv, waitJob, sleep, HERE } from './server-helpers.js';
+import { scratchEnv, waitJob, sleep, HERE, POSIX_ONLY } from './server-helpers.js';
 
 let tmp;
 before(async () => { tmp = await scratchEnv('silinx-units-test-'); });
@@ -62,7 +62,7 @@ test('jobs: kill errors are swallowed (process already gone, no pid)', async () 
   assert.equal((await waitJob(jobs, job.id)).status, 'error');
 });
 
-test('jobs: a process that survives SIGTERM gets SIGKILL', async () => {
+test('jobs: a process that survives SIGTERM gets SIGKILL', { skip: POSIX_ONLY }, async () => {
   const job = jobs.createJob('t', j => jobs.runCommand(j, 'sh', ['-c', 'trap "" TERM; echo ready; while :; do sleep 1; done']));
   for (let i = 0; i < 500 && !jobs.getJob(job.id).lines.includes('ready'); i++) await sleep(10);
   // run the 3 s SIGKILL timer at once
@@ -91,7 +91,7 @@ test('jobs: finished jobs are garbage-collected after an hour and beyond 200 job
   assert.ok(jobs.getJob(ids.at(-1)));
 });
 
-test('runCommand: stdin input, \\r progress lines, prefix, no echo, spawn failures, cancelled job', async () => {
+test('runCommand: stdin input, \\r progress lines, prefix, no echo, spawn failures, cancelled job', { skip: POSIX_ONLY }, async () => {
   const lines = [];
   const job = jobs.createJob('t', async j => jobs.runCommand(j, 'sh', ['-c', 'cat; printf "a\\rb\\r\\nc\\r"; echo err >&2'], { input: 'from stdin\n', prefix: 'E: ', echo: false, onLine: (l, s) => lines.push(`${s}:${l}`) }));
   const j = await waitJob(jobs, job.id);
@@ -119,7 +119,7 @@ test('runCommand: stdin input, \\r progress lines, prefix, no echo, spawn failur
   await waitJob(jobs, c.id);
 });
 
-test('capture: output, missing binary, timeout, spawn error', async () => {
+test('capture: output, missing binary, timeout, spawn error', { skip: POSIX_ONLY }, async () => {
   assert.deepEqual(await jobs.capture('sh', ['-c', 'echo out; echo err >&2']), { code: 0, out: 'out\nerr\n' });
   assert.deepEqual(await jobs.capture('sh', ['-c', 'cat'], { input: 'in' }), { code: 0, out: 'in' });
   assert.equal((await jobs.capture('definitely-missing-binary-xyz')).error, 'not found');
@@ -236,7 +236,7 @@ test('report parsers: odd and partial inputs', () => {
 // toolchain
 // ------------------------------------------------------------------------------------------------
 
-test('toolchain: iseStatus for every mode, which(), version probe fallback, config file errors', async () => {
+test('toolchain: iseStatus for every mode, which(), version probe fallback, config file errors', { skip: POSIX_ONLY }, async () => {
   const cfg = await tc.loadConfig();
   const ok = { bash: '/bin/bash', docker: '/x/docker', ssh: '/x/ssh', tar: '/x/tar' };
   assert.match(tc.iseStatus({ ...cfg, mode: 'local' }, { ise: {}, helpers: { ...ok, bash: null } }).reason, /bash not found/);
