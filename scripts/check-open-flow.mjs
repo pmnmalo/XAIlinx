@@ -4,8 +4,12 @@
 // the same routed.xdl, runs its design rule check and writes its own .bit (ise-open-check.sh); the
 // two .bit files must be byte-identical (CRC on and off) and the DRC must find no error.
 //
-//   SILINX_ISE_HOST=user@host node scripts/check-open-flow.mjs [project folder …]   (default: examples/blinky)
+//   SILINX_ISE_HOST=user@host node scripts/check-open-flow.mjs [project folder [open-flow options] …]   (default: examples/blinky)
 //   (also: SILINX_ISE_IMAGE, default xilinx/ise:14.7). Needs the device cache (~/.silinx/devices).
+// Options after a project folder go to its open flow (e.g. `lab11 --seed 2 --timing-route 0`); the
+// same project may be given several times with different options. With SILINX_KEEP=1 the work
+// folder is kept, with ISE's timing report (routed.twr, trce -a) and every connection's delay
+// (routed.dly, reportgen -delay) next to each routed.xdl: research/s3e-route/timing-fit.mjs.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,7 +20,14 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOST = process.env.SILINX_ISE_HOST;   // only from the environment, never written in a file
 const IMAGE = process.env.SILINX_ISE_IMAGE || 'xilinx/ise:14.7';
 if (!HOST) { console.error('set SILINX_ISE_HOST=user@host (a machine with the ISE Docker image, reached by ssh with a key)'); process.exit(2); }
-const projects = process.argv.slice(2).length ? process.argv.slice(2) : [path.join(ROOT, 'examples', 'blinky')];
+// projects, each with the open-flow options that follow it
+const projects = [];
+for (const a of process.argv.slice(2)) {
+  if (fs.existsSync(path.join(a, 'silinx.json'))) projects.push({ dir: a, opts: [] });
+  else if (projects.length) projects.at(-1).opts.push(a);
+  else { console.error(`${a}: not a Silinx project folder`); process.exit(2); }
+}
+if (!projects.length) projects.push({ dir: path.join(ROOT, 'examples', 'blinky'), opts: [] });
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'silinx-open-check-'));
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 << 20, ...opts });
@@ -25,23 +36,26 @@ const names = [];
 let failed = 0;
 
 // 1. the open flow, here
-for (const proj of projects) {
-  const name = path.basename(path.resolve(proj)).replace(/[^\w.-]/g, '_');
+for (const { dir, opts } of projects) {
+  let name = [path.basename(path.resolve(dir)), ...opts.map(o => o.replace(/^--/, ''))].join('-').replace(/[^\w.-]/g, '_');
+  while (names.includes(name)) name += '_';
   names.push(name);
-  const r = spawnSync(process.execPath, [path.join(ROOT, 'research/s3e-route/open-flow.mjs'), proj, path.join(work, name)], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'research/s3e-route/open-flow.mjs'), dir, path.join(work, name), ...opts], { encoding: 'utf8' });
   console.log(`${name}: open flow ${r.status === 0 ? 'ok' : 'FAILED'}`);
   if (r.status !== 0) { console.log(r.stderr.trim().split('\n').slice(-10).join('\n')); failed++; names.pop(); }
 }
 if (!names.length) process.exit(1);
 
 // 2. ISE, on the remote host: xdl -xdl2ncd, drc, bitgen (CRC on and off)
-const remote = 'silinx-open-check';
+// a folder of its own on the host (other checks may run there at the same time)
+const remote = `silinx-open-check/${path.basename(work)}`;
 fs.copyFileSync(path.join(ROOT, 'research/s3e-route/ise-open-check.sh'), path.join(work, 'ise-open-check.sh'));
 ssh(`rm -rf ${remote} && mkdir -p ${remote}`);
 run('rsync', ['-a', '-e', 'ssh -o BatchMode=yes', `${work}/`, `${HOST}:${remote}/`]);
 const out = ssh(`docker run --rm -v "$HOME/${remote}":/w ${IMAGE} bash /w/ise-open-check.sh /w ${names.join(' ')}`);
 process.stdout.write(out.split('\n').map(l => (l ? `  ISE ${l}` : l)).join('\n'));
-run('rsync', ['-a', '-e', 'ssh -o BatchMode=yes', '--include=*/', '--include=ise*.bit', '--include=drc.log', '--exclude=*', `${HOST}:${remote}/`, `${work}/`]);
+run('rsync', ['-a', '-e', 'ssh -o BatchMode=yes', '--include=*/', '--include=ise*.bit', '--include=drc.log', '--include=routed.twr', '--include=routed.dly', '--exclude=*', `${HOST}:${remote}/`, `${work}/`]);
+ssh(`rm -rf ${remote}`);
 
 // 3. Silinx's .bit against ISE's, from the same routed.xdl (the header's name, date and time are ISE's)
 for (const name of names) {

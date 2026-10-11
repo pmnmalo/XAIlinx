@@ -1,0 +1,86 @@
+# =======================================================
+# XDL REPORT MODE $Revision: 1.8 $
+# (a small hand-made device in the format of xdl -report -pips -all_conns, for the tests of
+#  core/fpga/timing.js and the timing-driven router: three CLBs in a row; the first one's slice
+#  reaches the third one's F1 pin either by two double lines (through the middle CLB, which can also
+#  go on to G1) or by one long line; a clock wire from a pad to both slices)
+# =======================================================
+(xdl_resource_report v0.2 xc3s50etq144-4 spartan3e
+(tiles 1 3
+	(tile 0 0 CLB_X1Y0 CENTER_SMALL 2
+		(primitive_site SLICE_X0Y0 SLICEL internal 3
+			(pinwire CLK input CLK0)
+			(pinwire X output X0)
+			(pinwire XQ output XQ0)
+		)
+		(primitive_site P1 IOB bonded 1
+			(pinwire I output IOIS_I0)
+		)
+		(wire CLK0 0)
+		(wire E2BEG0 1
+			(conn CLB_X2Y0 E2END0)
+		)
+		(wire GCLK0 1
+			(conn CLB_X3Y0 GCLK0)
+		)
+		(wire IOIS_I0 0)
+		(wire LH0 1
+			(conn CLB_X3Y0 LH0)
+		)
+		(wire OMUX0 0)
+		(wire X0 0)
+		(wire XQ0 0)
+		(pip CLB_X1Y0 GCLK0 -> CLK0)
+		(pip CLB_X1Y0 IOIS_I0 -> GCLK0)
+		(pip CLB_X1Y0 OMUX0 -> E2BEG0)
+		(pip CLB_X1Y0 OMUX0 -> LH0)
+		(pip CLB_X1Y0 X0 -> OMUX0)
+		(pip CLB_X1Y0 XQ0 -> OMUX0)
+		(tile_summary CLB_X1Y0 CENTER_SMALL 4 8 6)
+	)
+	(tile 0 1 CLB_X2Y0 CENTER_SMALL 0
+		(wire E2BEG1 1
+			(conn CLB_X3Y0 E2END1)
+		)
+		(wire E2END0 1
+			(conn CLB_X1Y0 E2BEG0)
+		)
+		(pip CLB_X2Y0 E2END0 -> E2BEG1)
+		(tile_summary CLB_X2Y0 CENTER_SMALL 0 2 1)
+	)
+	(tile 0 2 CLB_X3Y0 CENTER_SMALL 1
+		(primitive_site SLICE_X2Y0 SLICEL internal 5
+			(pinwire CLK input CLK0)
+			(pinwire F1 input F1_B_PINWIRE0)
+			(pinwire G1 input G1_B_PINWIRE0)
+			(pinwire X output X0)
+			(pinwire Y output Y0)
+		)
+		(wire CLK0 0)
+		(wire E2END1 1
+			(conn CLB_X2Y0 E2BEG1)
+		)
+		(wire F1_B_PINWIRE0 0)
+		(wire G1_B_PINWIRE0 0)
+		(wire GCLK0 1
+			(conn CLB_X1Y0 GCLK0)
+		)
+		(wire LH0 1
+			(conn CLB_X1Y0 LH0)
+		)
+		(wire X0 0)
+		(wire Y0 0)
+		(pip CLB_X3Y0 E2END1 -> F1_B_PINWIRE0)
+		(pip CLB_X3Y0 E2END1 -> G1_B_PINWIRE0)
+		(pip CLB_X3Y0 GCLK0 -> CLK0)
+		(pip CLB_X3Y0 LH0 -> F1_B_PINWIRE0)
+		(tile_summary CLB_X3Y0 CENTER_SMALL 5 9 4)
+	)
+)
+(primitive_defs 1
+	(primitive_def VCC 1 2
+		(pin VCCOUT VCCOUT output)
+	)
+)
+(summary tiles=3 sites=3 sitedefs=1 numpins=9 numpips=11)
+)
