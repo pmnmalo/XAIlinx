@@ -43,7 +43,9 @@ reference design implemented by ISE (`top.xdl`, `top.bit`, from `top.v` / `top.u
 | `learn-single.mjs`, `unify-io.mjs` | Features measured in the reference designs; shared switch boxes of the I/O tile types |
 | `check-writer.mjs` | Acceptance test of the writer (`core/fpga/bitgen.js`): byte comparison with ISE's bitgen |
 | `fuzz-remote.sh` | Stage D: `run-many.sh` on another machine with Docker and the ISE image (`SILINX_FUZZ_HOST=user@host`, set on the command line only) |
-| `share-sb.mjs`, `gen-branch.mjs`, `ana-perpad.mjs`, `ise-impl.sh` | Stage D: the CLB switch box shared by the I/O, block-RAM and DCM tiles; PIPs measured as dead-end branches of routed nets; I/O settings per pad; designs implemented by ISE from HDL (reference designs) |
+| `share-sb.mjs`, `gen-branch.mjs`, `ana-perpad.mjs`, `ise-impl.sh` | Stage D: the CLB switch box shared by the I/O, block-RAM and DCM tiles; PIPs measured as dead-end branches of routed nets; I/O settings per pad (`gen-iob.mjs --perpad / --perstd`); designs implemented by ISE from HDL (reference designs) |
+| `gen-bram.mjs`, `ana-bram.mjs`, `db/xc3s250e-bram.json` | Stage D: every memory bit of the block RAMs, by binary codes |
+| `gen-sitevar.mjs`, `ana-sitevar.mjs`, `sitevar-features.mjs`, `bram-features.mjs` | Stage D: the settings of block RAMs, multipliers and DCMs, changed one at a time in designs implemented by ISE |
 | `db/xc3s250e-layout.json`, `db/xc3s250e-tiles.json` | Result of stage C: where every tile is in the frame data; the bits of every measured feature (PIPs, site settings, pads) per tile type |
 
 ## Results
@@ -227,11 +229,14 @@ BUFGMUX with I1 / S used. A design using one of these reports it (`unknown` feat
 **Result: blinky and lab11 placed and routed by Silinx's own placer and router are byte-identical
 to ISE's bitgen from the same XDL, and so are all 12 other reference designs** (ISE's placements of
 switch -> LED, blinky, lab11 and lab11 synthesized by Yosys, with and without CRC; designs with
-distributed RAM and shift registers implemented by ISE: @@RAMRESULT@@).
+block RAMs, multipliers, distributed RAM, shift registers, a DCM and a BUFGMUX implemented by ISE
+from HDL (`ise-impl.sh`: the fixtures of `test/fixtures/designs` and two designs of primitives) are
+byte-identical too, but for one bit of an LVCMOS25 input in one design).
 
 **Where.** ISE ran on a faster machine (an Intel Mac with Docker: about 9x faster than emulation)
 through `fuzz-remote.sh`; the host is given on the command line only (`SILINX_FUZZ_HOST`).
-@@RUNS@@
+About 1780 ISE runs (`xdl -xdl2ncd` + `bitgen`, 3-4 at a time, about 8 hours of container time in 5 hours
+of wall time), plus 10 designs implemented from HDL (xst, map, par: 8 minutes).
 
 **The PIPs of Silinx's own designs.** `gen-pipdrop.mjs` on Silinx's routed blinky and lab11 (20
 variants each) measured all their 9370 PIPs at once.
@@ -281,10 +286,38 @@ to the changed pad whose own bits are nearest (a pad's bits are not always in it
 of the pad's bits (`O:DRIVE:8`, `O:SLEW:FAST`, `O:PULL:PULLUP`, `I:PULL:KEEPER`). Checked with all
 92 pads at random settings: inputs of any standard with any pull, and LVCMOS33 outputs with any drive
 / slew / pull, are byte-identical; the drive and slew of another standard change other bits than
-LVCMOS33's, so they are measured per standard (`--perstd`, features `O:LVTTL:DRIVE:8`…).
-@@IOSTD@@
+LVCMOS33's, so they are measured per standard (`--perstd`, features `O:LVTTL:DRIVE:8`…): LVTTL
+outputs with any drive / slew / pull are byte-identical too. A setting xdl's DRC calls illegal (a
+1.2-1.8 V output in a 3.3 V bank, which is every bank of the Basys2) is not a measurement and is left
+out; LVCMOS25 16 mA with FAST does not compose yet.
 
-**Coverage.** @@COVERAGE@@
+**Block RAM** (`gen-bram.mjs`, `ana-bram.mjs`: all 12 block RAMs, 17 designs): every one of the
+18432 memory bits (INIT_xx, INITP_xx) has the same place relative to its block RAM in all 12, stored
+as is (`db/xc3s250e-bram.json`: a column frame per X, a row bit per Y, and the place of each bit).
+The settings are in the interconnect column before the RAM's (`gen-sitevar.mjs` on a design of
+block RAMs and multipliers, one instance changed at a time; `ana-sitevar.mjs --dx -1`,
+`bram-features.mjs`): the port widths are a 3-bit code per port, the write modes one bit each, the
+output latches' initial and reset values (INIT_A, SRVAL_B…) one bit per value bit at a place that
+depends on the port width, stored inverted (`RAMB16:INIT_A@2048X9:3`…); the enable and write-enable
+pins of an unused port count as not inverted. Multipliers: registers, B input and inverters, one bit
+each. **DCM** (`sitevar-features.mjs`): every value of CLKDV_DIVIDE, CLKFX_MULTIPLY (2-32) and
+CLKFX_DIVIDE (1-32), DESKEW_ADJUST (0-15), CLK_FEEDBACK, CLKOUT_PHASE_SHIFT, the frequency modes,
+duty cycle correction, STARTUP_WAIT and the inverters, measured on the top-left DCM only (the other
+three are not measured); PHASE_SHIFT only the 13 values measured; FACTORY_JF1 / JF2 set no bits;
+CLKIN_PERIOD changes 2 bits (not in the database); STARTUP_WAIT also changes the COR register (not
+written yet).
+
+**Coverage.** Of the PIPs (without route-throughs) of one tile of each of the 85 tile types, 64329 in
+all, the database gives 59177 (92%; the I/O tiles of one side share theirs): the CLB all but 4 (the
+SLICEMs' RAM cascade pins), the I/O tiles all but their clock pins from the global lines and the
+DDR / differential pairs, the block-RAM interconnect all but about 30. Left: the DCMs' own pins
+(about 370 PIPs per DCM), the corner tiles' configuration-logic pins (LR, UR), the clock tiles'
+pad / DCM inputs (CLKT, CLKB, CLKL, CLKR), the BUFGMUX I1 / S settings of 7 of the 8 buffers; IFF /
+OFF and DDR registers in the IOBs; the DCMs other than the top-left one. A design using one of these
+reports it (`unknown`). The 113 PIPs measured with different bits in different tiles are resolved
+by majority and artefact rules (`resolvePatterns`, `stripLutRuns`, empty measurements against the
+same bits in two tiles); the rest are BX / BY bounces and global clock pins with bits of the clock
+rows, kept by majority.
 
 ### Open synthesis on the board (2026-10-10)
 
