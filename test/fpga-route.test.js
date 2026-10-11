@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { packDevice, loadDevice } from '../core/fpga/device.js';
-import { routeDesign, checkRouting, netEndpoints } from '../core/fpga/route.js';
+import { routeDesign, checkRouting, netEndpoints, clockReach } from '../core/fpga/route.js';
 import { parseXdl, writeXdl } from '../core/xdl.js';
 
 const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fpga');
@@ -180,6 +180,14 @@ test('routeDesign: existing PIPs are replaced; nets without sinks get none; the 
   assert.equal(pipsOf(r, 'n').length, 3);
   assert.deepEqual(pipsOf(r, 'empty'), []);
   assert.deepEqual(d.nets[0].pips, [{ tile: 'CLB_X1Y0', from: 'X1', dir: '->', to: 'OMUX1' }]);
+});
+
+test('clockReach: the slices whose clock pin a global buffer reaches on the clock network, through allowed PIPs only', () => {
+  assert.deepEqual([...clockReach(device, 'BUFGMUX_X1Y1')].sort(), ['SLICE_X0Y0', 'SLICE_X0Y1', 'SLICE_X1Y0', 'SLICE_X1Y1']);
+  // GCLK0 -> CLK1 of CLB_X2Y0 not allowed: its upper slice is not reached (S2END0 -> CLK is general routing, not followed)
+  const allow = (tile, from, to) => !(tile === 'CLB_X2Y0' && from === 'GCLK0' && to === 'CLK1');
+  assert.deepEqual([...clockReach(device, 'BUFGMUX_X1Y1', allow)].sort(), ['SLICE_X0Y0', 'SLICE_X0Y1', 'SLICE_X1Y0']);
+  assert.deepEqual([...clockReach(device, 'NO_SUCH_SITE')], []);
 });
 
 test('checkRouting: unknown PIPs, unreached sinks, antennas and nodes shared by two nets', () => {

@@ -12,12 +12,14 @@ import { parseXdlrc, parseXdl } from '../core/xdl.js';
 import { packDevice, loadDevice } from '../core/fpga/device.js';
 import { readYosysJson } from '../core/fpga/netlist.js';
 import { pack } from '../core/fpga/pack.js';
-import { deviceSites, place, placedXdl, PlaceError, rng } from '../core/fpga/place.js';
+import { deviceSites, place, placedXdl, PlaceError, rng, timingGraph, analyzeTiming } from '../core/fpga/place.js';
+import { SPEED_4 } from '../core/fpga/timing.js';
 import { writeXdl } from '../core/fpga/xdl-write.js';
 
 const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fpga');
 const load = n => readYosysJson(fs.readFileSync(path.join(FIX, `${n}.json`), 'utf8'));
 const dev = deviceSites(parseXdlrc(fs.readFileSync(path.join(FIX, 'place-device.xdlrc'), 'utf8')));
+const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
 const xy = s => { const m = /^SLICE_X(\d+)Y(\d+)$/.exec(s); return m ? [+m[1], +m[2]] : null; };
 
 test('the device from the routing graph (core/fpga/device.js) gives the same sites as from the report', () => {
@@ -82,6 +84,42 @@ test('mux64: the two-CLB F8 group and the F7 / F6 groups keep their pattern; cha
   checkLegal(p, r);
   const q = pack(load('counter'));
   for (let s = 1; s <= 4; s++) checkLegal(q, place(q, dev, { seed: s, effort: 0.2 }));
+});
+
+test('clockSites: the flip-flops of a clock stay on the slices its global buffer reaches', () => {
+  const ucf = 'NET "clk" LOC = "P3";\nNET "q<0>" LOC = "P10";\nNET "rst" LOC = "P5";';
+  const p = pack(load('counter'), { ucf });
+  const asked = [];
+  // the clock reaches only the slices of the left columns (x < 4)
+  const reach = new Set([...dev.slices.values()].filter(s => s.x < 4).map(s => s.name));
+  const clocked = new Set(p.nets.filter(n => n.outpins.length && p.insts[n.outpins[0].inst].kind === 'bufg').flatMap(n => n.inpins.filter(q => q.pin === 'CLK').map(q => q.inst)));
+  assert.ok(clocked.size > 0);
+  for (const seed of [1, 2]) {
+    const r = place(p, dev, { seed, effort: 0.3, clockSites: site => { asked.push(site); return reach; } });
+    checkLegal(p, r);
+    for (const i of clocked) assert.ok(reach.has(r.sites[i].site), `${p.insts[i].name} on ${r.sites[i].site}`);
+  }
+  assert.deepEqual([...new Set(asked)], ['BUFGMUX_X2Y11']);
+  // null: anywhere
+  checkLegal(p, place(p, dev, { seed: 1, effort: 0.2, clockSites: () => null }));
+});
+
+test('placement timing: delays of core/fpga/timing.js (ns), flip-flop to flip-flop, growing with the distance', () => {
+  const p = pack(load('counter'), { ucf: 'NET "clk" LOC = "P3";' });
+  const tg = timingGraph(p);
+  const r = place(p, dev, { seed: 1, effort: 0.3 });
+  const pos = r.sites.map(s => { const x = dev.slices.get([...dev.slices.keys()].find(k => dev.slices.get(k).name === s.site)) || dev.pads.get(s.site) || dev.bufgmux.find(b => b.name === s.site); return [x.px, x.py]; });
+  const t = analyzeTiming(tg, pos);
+  close(t.dmax, r.delay);
+  // at least a flip-flop's clock-to-out, a connection and a setup
+  assert.ok(t.dmax > SPEED_4.slice.TckoX[0] + SPEED_4.dist.base + SPEED_4.slice.Tdick[0], `${t.dmax}`);
+  assert.ok(t.conns.some(c => c.crit > 0.999));
+  // dedicated connections (the carry chain) take no time; others grow with the distance
+  for (const c of t.conns) if (c.dedicated) assert.equal(c.delay, 0);
+  const near = t.conns.map(c => c.delay);
+  const far = analyzeTiming(tg, pos.map(([x, y]) => [x * 3, y * 3]));
+  assert.ok(far.dmax >= t.dmax);
+  assert.ok(far.conns.every((c, i) => c.delay >= near[i]) && far.conns.some((c, i) => c.delay > near[i]));
 });
 
 test('placement errors: unknown LOC, input-only pad for an output, too many slices', () => {

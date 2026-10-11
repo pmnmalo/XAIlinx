@@ -54,8 +54,8 @@ What the packer does:
 The placer: simulated annealing over slices, groups (carry chains, F6 / F7 / F8 patterns, moved
 as one with their alignment: F6 on an even row, F7 / F8 on a CLB) and pads without LOC; cost =
 half-perimeter wirelength with VPR's correction for nets with many pins, each net weighted by
-`1 + timing x criticality^4` (criticality from a rough static timing estimate, recomputed at every
-temperature); clock nets (from a BUFGMUX) are left out. BUFGMUX: on the edge of the pad that drives
+`1 + timing x criticality^4` (criticality from a static timing estimate in ns with the delay model
+of `core/fpga/timing.js`, recomputed at every temperature); clock nets (from a BUFGMUX) are left out. BUFGMUX: on the edge of the pad that drives
 it (B8 -> BUFGMUX_X2Y11, as ISE). Deterministic: the same seed gives the same placement.
 
 ## Scripts
@@ -125,8 +125,10 @@ simulation. The wirelength is about the same (2 927 / 2 984 / 2 901 CLB units).
 - **Clock buffer choice** follows the pad's edge with ISE's order (X2Y11 first at the top, X2Y1 at
   the bottom); the dedicated pad -> BUFGMUX routes of every GCLK pin are not known yet (par routes
   a non-dedicated one through general routing).
-- **Timing**: the timing term uses a rough delay model (a LUT 1, a connection 0.6 + 0.12 per CLB).
-  Real delays (from ISE's timing reports, or the router's) would make it better.
+- **Timing**: the timing term now uses the delay model of `core/fpga/timing.js` (fitted to ISE's
+  timing reports: the slice arcs, a connection's delay from its distance) on flip-flop to flip-flop
+  paths (research/s3e-route/README.md, "Timing"); it was a rough model (a LUT 1, a connection 0.6 +
+  0.12 per CLB). The routed delay depends on the router as much as on the distance.
 - **Packing density**: LUT + flip-flop pairs are chosen greedily; a flip-flop alone could also fill
   the free flip-flop of a carry or multiplexer slice through BX / BY.
 - FDSE / FDPE without an initial value (Yosys INIT = x) start at 0, as Silinx's simulator starts

@@ -20,12 +20,22 @@
 //   of the net's own source site onto a free output pin: a carry chain whose last COUT does not go
 //   to a CIN leaves the slice through YB (COUT -> YB), as ISE routes it. Through any other site they
 //   would need that site configured for it, so they are never used.
+// - Timing (opts.timing): PathFinder's criticality term, as in VPR's timing-driven router. Each
+//   connection (driver pin -> load pin) has a criticality c (0..1) from a static timing analysis of
+//   the design (core/fpga/timing.js: the delay model of the device, the logic of the slices); the
+//   cost of a node for it is c x its delay + (1 - c) x its congestion cost, and the search starts
+//   from the tree with each node's delay from the source, so a critical load gets a direct, fast path
+//   while the others share wires. The criticalities start from the distances and are recomputed
+//   from the routed delays after each pass; the most critical loads of a net are routed first.
+//   Once the routing is legal, more passes reroute the critical nets as long as the analysis says
+//   the critical path gets shorter; the best legal routing is kept.
 // - Known switches only (opts.allowPip): the router can be restricted to the PIPs a bitstream writer
 //   knows the bits of (core/fpga/bitgen.js knownRouting(db)), so the routed design can be turned
 //   into a complete bitstream without Xilinx's bitgen; a sink that cannot be reached that way makes
 //   its net fail (listed in `failed`), never a route through an unknown switch.
 
 import { PIP_ROUTETHRU } from './device.js';
+import { timingGraph, nodeDelays, pathDelay, distanceDelay, SPEED_4 } from './timing.js';
 
 // ------------------------------------------------------------------ the nets of a design
 /** The site of an instance, or of the made-up source of a power net ("XDL_DUMMY_<tile>_<site>"). */
@@ -113,10 +123,14 @@ function globalClockMask(device) {
  * replaced); `device` a Device (loadDevice). Options: maxIterations (50), log (fn),
  * allowPip(tileName, from, to) (PIPs the router may use, wires in the direction of the signal;
  * default all), allowConstSource('vcc' | 'gnd', site) (sites that may be made the source of a
- * VCC / GND net without one; site: { name, tileName, type }; default all).
+ * VCC / GND net without one; site: { name, tileName, type }; default all), timing (false: route
+ * for wirelength and congestion only; true: timing-driven, with the delay model of
+ * core/fpga/timing.js), timingPasses (2: passes after the routing is legal, for timing only),
+ * maxCriticality (0.99), model (timing.js SPEED_4).
  * Returns { design (a copy with the PIPs of every routed net), routed, failed: [names],
  * unreached: [{ net, inst, pin }] (the sinks of the failed nets not reached), iterations,
- * overused (nodes still shared at the end: 0 when successful), errors, pips, timeMs }.
+ * overused (nodes still shared at the end: 0 when successful), errors, pips, timeMs,
+ * period (timing: the critical path of the routing returned by the model, ns) }.
  */
 export function routeDesign(design, device, opts = {}) {
   const t0 = Date.now();
@@ -126,6 +140,11 @@ export function routeDesign(design, device, opts = {}) {
   const E = device.routingEdges();
   const N = device.nodeCount;
   const gclk = globalClockMask(device);
+  const timing = !!opts.timing;
+  const model = opts.model || SPEED_4;
+  const ndel = timing ? nodeDelays(device, model) : null;
+  const D0 = 0.3, H_DELAY = 0.1;     // ns per unit of congestion cost; the A* estimate's delay per tile (a little over the fastest wires': faster search)
+  const maxCrit = opts.maxCriticality ?? 0.99;
   // the PIPs the router may use (opts.allowPip), decided once per edge when the search first meets it
   const allowPip = opts.allowPip || null;
   const allowed = allowPip ? new Uint8Array(E.edgeTo.length) : null;   // 0 not decided, 1 yes, 2 no
@@ -172,17 +191,20 @@ export function routeDesign(design, device, opts = {}) {
   const failed = new Set();
   const unreached = new Map();     // net index -> sinks not reached in its last routing
 
-  // A* from the tree to one sink; returns the list of edges of the new branch (sink first) or null
-  const search = (tree, sink, netIdx, pf, restrict) => {
+  // A* from the tree to one sink; returns the list of edges of the new branch (sink first) or null.
+  // crit (timing): the criticality of the connection; a node costs crit x delay / D0 + (1 - crit) x
+  // congestion, and a tree node starts at crit x its delay from the source (tdel) / D0
+  const search = (tree, sink, netIdx, pf, restrict, crit = 0, tdel = null) => {
     curStamp++;
     heap.clear();
     const tr = device.nodeR0[sink], tc = device.nodeC0[sink];
+    const cw = 1 - crit, dw = crit / D0, hf = 0.3 * cw + dw * H_DELAY;
     const h = m => {
       const dr = tr < device.nodeR0[m] ? device.nodeR0[m] - tr : tr > device.nodeR1[m] ? tr - device.nodeR1[m] : 0;
       const dc = tc < device.nodeC0[m] ? device.nodeC0[m] - tc : tc > device.nodeC1[m] ? tc - device.nodeC1[m] : 0;
-      return 0.3 * (dr + dc);
+      return hf * (dr + dc);
     };
-    for (const n of tree.keys()) { stamp[n] = curStamp; g[n] = 0; prev[n] = -1; done[n] = 0; heap.push(h(n), n); }
+    for (const n of tree.keys()) { stamp[n] = curStamp; g[n] = dw && tdel ? dw * tdel.get(n) : 0; prev[n] = -1; done[n] = 0; heap.push(g[n] + h(n), n); }
     let expanded = 0;
     while (heap.n) {
       const n = heap.pop();
@@ -205,7 +227,7 @@ export function routeDesign(design, device, opts = {}) {
         if (restrict && !restrict[m] && m !== sink) continue;
         if (!edgeOk(e)) continue;
         const over = occ[m];      // other nets on this node (this net is ripped up)
-        const c = (1 + hist[m]) * (1 + pf * over);
+        const c = cw * (1 + hist[m]) * (1 + pf * over) + (dw ? dw * ndel[m] : 0);
         const gm = g[n] + c;
         if (stamp[m] !== curStamp || gm < g[m]) {
           stamp[m] = curStamp; g[m] = gm; prev[m] = e; done[m] = 0;
@@ -220,37 +242,96 @@ export function routeDesign(design, device, opts = {}) {
     const net = work[i];
     const tree = new Map();
     for (const s of net.sources) tree.set(s, -1);
-    // nearest sinks first, so later sinks branch off a tree that already spans the region
+    // the delay of each tree node from the source (timing)
+    const tdel = timing ? new Map(net.sources.map(s => [s, 0])) : null;
+    // the most critical sinks first (timing), then the nearest, so later sinks branch off a tree
+    // that already spans the region
     const src = net.sources[0];
     const dist = s => Math.abs(device.nodeR0[s.node] - device.nodeR0[src]) + Math.abs(device.nodeC0[s.node] - device.nodeC0[src]);
-    const sinks = [...net.sinks].sort((a, b) => dist(a) - dist(b));
+    const critOf = s => (timing && s.conn >= 0 ? sinkCrit[s.conn] : 0);
+    const sinks = [...net.sinks].sort((a, b) => critOf(b) - critOf(a) || dist(a) - dist(b));
     let ok = true;
     unreached.delete(i);
     for (const s of sinks) {
       if (tree.has(s.node)) continue;
       let path = net.clock ? search(tree, s.node, i, pf, gclk) : null;
-      if (!path) path = search(tree, s.node, i, pf, null);
+      if (!path) path = search(tree, s.node, i, pf, null, critOf(s), tdel);
       if (!path) { ok = false; unreached.set(i, [...(unreached.get(i) || []), s.pin]); continue; }
-      for (const e of path) tree.set(E.edgeTo[e], e);
+      for (let j = path.length - 1; j >= 0; j--) {
+        const e = path[j], m = E.edgeTo[e];
+        tree.set(m, e);
+        if (tdel) tdel.set(m, tdel.get(edgeFrom[e]) + ndel[m]);
+      }
     }
     for (const n of tree.keys()) occ[n]++;
     trees[i] = tree;
     return ok;
   };
 
+  // timing: each sink's connection in the timing graph, and its criticality: from the distances at
+  // first, then from the routed delays after each pass (core/fpga/timing.js)
+  let tg = null, sinkCrit = null, period = null, exp = 1;
+  if (timing) {
+    tg = timingGraph(design, model);
+    for (const w of work) for (const s of w.sinks) s.conn = w.synthetic ? -1 : tg.connIndex.get(`${w.name}\u0000${s.pin.inst}\u0000${s.pin.pin}`) ?? -1;
+  }
+  const connDelays = () => {
+    const d = new Float64Array(tg.conns.length);
+    work.forEach((w, i) => {
+      const tree = trees[i];
+      const parent = new Map(), children = new Map();
+      if (tree) for (const [n, e] of tree) { const p = e < 0 ? -1 : edgeFrom[e]; parent.set(n, p); if (p >= 0) children.set(p, (children.get(p) || 0) + 1); }
+      for (const s of w.sinks) {
+        if (s.conn < 0) continue;
+        if (!parent.has(s.node)) { d[s.conn] = distanceDelay(w.sources[0], s.node, device, model); continue; }
+        const path = [];
+        for (let n = s.node; n !== -1; n = parent.get(n)) path.push(n);
+        d[s.conn] = pathDelay(path.reverse(), { children }, device, model);
+      }
+    });
+    return d;
+  };
+  const updateCrit = () => {
+    const r = tg.analyze(connDelays());
+    sinkCrit = r.crit.map(c => Math.min(maxCrit, c ** exp));
+    return r.period;
+  };
+  if (timing) period = updateCrit();
+
   let iter = 0, overused = 0, pf = 0.5;
   let toRoute = work.map((_, i) => i);
+  let best = null;     // timing: the best legal routing so far
+  let timingPasses = timing ? opts.timingPasses ?? 2 : 0;
   for (iter = 1; iter <= maxIter; iter++) {
     for (const i of toRoute) { ripUp(i); if (routeNet(i, pf)) failed.delete(i); else failed.add(i); }
     // congestion: nodes used by more than one net
     overused = 0;
     const hot = new Uint8Array(N);
     for (let n = 0; n < N; n++) if (occ[n] > 1) { overused++; hot[n] = 1; hist[n] += 0.5 * (occ[n] - 1); }
-    log(`iteration ${iter}: ${toRoute.length} nets routed, ${overused} nodes overused, ${failed.size} unroutable`);
-    if (!overused) break;
+    if (timing) {
+      exp = Math.min(8, exp + 1);
+      period = updateCrit(false);
+      if (!overused && (!best || period < best.period)) best = { period, trees: trees.map(t => t && new Map(t)), failed: new Set(failed), unreached: new Map(unreached) };
+    }
+    log(`iteration ${iter}: ${toRoute.length} nets routed, ${overused} nodes overused, ${failed.size} unroutable${timing ? `, critical path ${period.toFixed(3)} ns` : ''}`);
+    if (!overused) {
+      if (timingPasses-- <= 0) break;
+      // timing only: the nets of the critical connections again, with the new criticalities
+      toRoute = work.map((_, i) => i).filter(i => work[i].sinks.some(s => s.conn >= 0 && sinkCrit[s.conn] > 0.5));
+      if (!toRoute.length) break;
+      continue;
+    }
     toRoute = [];
     work.forEach((_, i) => { if (trees[i] && [...trees[i].keys()].some(n => hot[n])) toRoute.push(i); });
     pf *= 1.6;
+  }
+  if (best && (overused || best.period < period)) {
+    // back to the best legal routing found
+    for (let i = 0; i < trees.length; i++) ripUp(i);
+    best.trees.forEach((t, i) => { trees[i] = t; if (t) for (const n of t.keys()) occ[n]++; });
+    failed.clear(); for (const i of best.failed) failed.add(i);
+    unreached.clear(); for (const [k, v] of best.unreached) unreached.set(k, v);
+    overused = 0; period = best.period;
   }
 
   // the routed design: each net's PIPs (ISE's own power nets keep their names; made-up ones are added)
@@ -283,7 +364,7 @@ export function routeDesign(design, device, opts = {}) {
   return {
     design: out, routed: work.length - failed.size, failed: [...failed].map(i => work[i].name),
     unreached: [...failed].flatMap(i => (unreached.get(i) || []).map(p => ({ net: work[i].name, inst: p.inst, pin: p.pin }))),
-    iterations: Math.min(iter, maxIter), overused, errors, pips: pipCount, timeMs: Date.now() - t0,
+    iterations: Math.min(iter, maxIter), overused, errors, pips: pipCount, timeMs: Date.now() - t0, period,
   };
 }
 
@@ -335,6 +416,35 @@ function tieConstants(nets, kind, { device, usedSites, errors, allowPip, allowSo
       cfgRaw: `_NO_USER_LOGIC:: ${kind === 'vcc' ? '_VCC_SOURCE' : '_GND_SOURCE'}::${pin} `,
     },
   }));
+}
+
+/**
+ * The slices whose clock pin a global clock buffer reaches through the dedicated clock network
+ * (GCLK nodes) and, with allowPip(tileName, from, to), only through allowed PIPs: a Set of slice site
+ * names. For the placer (place()'s clockSites option): with the switches of known bits, a clock line
+ * reaches the CLK pins of only some slices of a CLB (research/s3e-route/README.md).
+ */
+export function clockReach(device, bufgSite, allowPip = null) {
+  const E = device.routingEdges();
+  const gclk = globalClockMask(device);
+  const start = device.sitePinNode(bufgSite, 'O');
+  const seen = new Uint8Array(device.nodeCount), reached = new Set();
+  if (start < 0) return new Set();
+  const q = [start];
+  seen[start] = 1;
+  while (q.length) {
+    const n = q.pop();
+    for (let e = E.edgeStart[n]; e < E.edgeStart[n + 1]; e++) {
+      const m = E.edgeTo[e];
+      if (seen[m] || E.edgeFlags[e] & PIP_ROUTETHRU) continue;
+      if (allowPip && !allowPip(device.tileNames[E.edgeTile[e]], ...device.pipWires(E.edgeTile[e], E.edgePip[e]))) continue;
+      seen[m] = 1;
+      if (gclk[m]) q.push(m); else reached.add(m);   // off the clock network: an end (a site pin)
+    }
+  }
+  const out = new Set();
+  for (const s of [...device.sites('SLICEL'), ...device.sites('SLICEM')]) if (reached.has(device.sitePinNode(s.name, 'CLK'))) out.add(s.name);
+  return out;
 }
 
 // ------------------------------------------------------------------ checking a routed design

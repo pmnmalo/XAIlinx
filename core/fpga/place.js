@@ -15,6 +15,8 @@
 //     r = { sites: [{ tile, site }] by instance, cost, stats: { moves, temps, seconds, initialCost } }
 //   placedXdl(packed, r) -> a design for writeXdl (core/fpga/xdl-write.js)
 
+import { instArcs, SPEED_4 } from './timing.js';
+
 export class PlaceError extends Error {}
 
 // ------------------------------------------------------------------ the device
@@ -68,99 +70,105 @@ const crossing = n => (n < CROSS.length ? CROSS[n] : 2.7933 + 0.02616 * (n - 50)
 const BUFG_ORDER = ['BUFGMUX_X2Y11', 'BUFGMUX_X2Y10', 'BUFGMUX_X1Y11', 'BUFGMUX_X1Y10', 'BUFGMUX_X2Y1', 'BUFGMUX_X2Y0', 'BUFGMUX_X1Y1', 'BUFGMUX_X1Y0'];
 
 // ------------------------------------------------------------------ timing
-// Which input pins of a site reach each of its outputs without a flip-flop in between, from its
-// settings (the slice's output multiplexers and carry logic); flip-flop outputs (XQ, YQ) and pads
-// start paths.
-const LUT_PINS = s => [1, 2, 3, 4].map(k => `${s}${k}`);
-function throughPins(inst) {
-  const m = new Map(inst.cfg.map(c => [c.attr, c.value]));
-  const deps = {};
-  if (inst.kind !== 'slice') return deps;
-  const cin = m.get('CYINIT') === 'BX' ? ['BX'] : ['CIN'];
-  const cy0 = side => { const v = m.get(`CY0${side}`); return /^(BX|BY|F1|F2|G1|G2)$/.test(v || '') ? [v] : v === 'PROD' ? [`${side}1`, `${side}2`] : []; };
-  const cyF = [...LUT_PINS('F'), ...cin, ...cy0('F')];
-  const cyG = [...cyF, ...LUT_PINS('G'), ...cy0('G')];
-  const f5 = [...LUT_PINS('F'), ...LUT_PINS('G'), 'BX'], fx = ['FXINA', 'FXINB', 'BY'];
-  deps.X = { F: LUT_PINS('F'), F5: f5, FXOR: [...LUT_PINS('F'), ...cin] }[m.get('FXMUX')] || [];
-  deps.Y = { G: LUT_PINS('G'), FX: fx, GXOR: [...LUT_PINS('G'), ...cyF] }[m.get('GYMUX')] || [];
-  deps.F5 = f5; deps.FX = fx; deps.XB = cyF; deps.YB = cyG; deps.COUT = cyG;
-  return deps;
-}
+// The delays of core/fpga/timing.js (fitted to ISE's timing analyzer): the paths through a slice from
+// its settings (LUTs, F5 / F6 multiplexers, carry chain), the flip-flops' clock-to-out and setup,
+// and a connection's delay from the distance it spans (dedicated ones, carry and multiplexer chains:
+// none). The paths analysed are those of trce's clock period: flip-flop to flip-flop.
+const DEDICATED_PINS = new Set(['CIN', 'FXINA', 'FXINB']);
 
 /** Connections and their timing: every driver pin -> load pin of the nets (clocks and constants
- *  left out), with the input pins each output depends on. */
-export function timingGraph(packed) {
+ *  left out), with the arcs of each instance (timing.js instArcs: comb, setup, clkToOut). */
+export function timingGraph(packed, model = SPEED_4) {
   const conns = [];
   packed.nets.forEach((n, k) => {
     if (n.type !== 'wire' || !n.outpins.length) return;
     const src = n.outpins[0];
     if (packed.insts[src.inst].kind === 'bufg') return;
-    for (const p of n.inpins) if (p.pin !== 'CLK') conns.push({ net: k, src: src.inst, srcPin: src.pin, dst: p.inst, dstPin: p.pin });
+    for (const p of n.inpins) if (p.pin !== 'CLK') conns.push({ net: k, src: src.inst, srcPin: src.pin, dst: p.inst, dstPin: p.pin, dedicated: DEDICATED_PINS.has(p.pin) });
   });
-  return { conns, deps: packed.insts.map(throughPins) };
+  const arcs = packed.insts.map(inst => {
+    if (inst.kind !== 'slice') return { deps: {}, start: {}, setup: {} };
+    const a = instArcs({ type: 'SLICEL', site: null, cfg: inst.cfg }, model);
+    const deps = {}, start = {}, setup = {};
+    for (const [i, o, d] of a.comb) (deps[o] ||= []).push([i, d]);
+    for (const [o, d] of a.clkToOut) start[o] = d;
+    for (const [i, d] of a.setup) setup[i] = Math.max(setup[i] ?? -Infinity, d);
+    return { deps, start, setup };
+  });
+  return { conns, arcs, model };
 }
 
-/** Static timing on a placement, in rough units (a LUT 1, a connection 0.6 + 0.12 per CLB):
- *  the critical path delay and the criticality (0..1) of every connection. pos[inst] = [x, y]. */
-export function analyzeTiming(tg, pos, { lut = 1, wire0 = 0.6, perClb = 0.12 } = {}) {
-  const { conns, deps } = tg;
-  const delay = c => wire0 + perClb * (Math.abs(pos[c.src][0] - pos[c.dst][0]) + Math.abs(pos[c.src][1] - pos[c.dst][1]));
+/** Static timing on a placement (ns, by the model): the critical path delay (flip-flop to
+ *  flip-flop) and the criticality (0..1) of every connection. pos[inst] = [x, y] in tiles. */
+export function analyzeTiming(tg, pos) {
+  const { conns, arcs, model } = tg;
+  const { base, perTile, knee, far } = model.dist;
+  const delay = c => {
+    if (c.dedicated) return 0;
+    const d = Math.abs(pos[c.src][0] - pos[c.dst][0]) + Math.abs(pos[c.src][1] - pos[c.dst][1]);
+    return base + perTile * Math.min(d, knee) + far * Math.max(0, d - knee);
+  };
   // pins as nodes: `${inst}:${pin}`
   const into = new Map();    // input pin -> connections arriving
   const outOf = new Map();   // output pin -> connections leaving
   const key = (i, p) => `${i}:${p}`;
   for (const c of conns) {
+    c.delay = delay(c);
     const a = key(c.dst, c.dstPin), b = key(c.src, c.srcPin);
     if (!into.has(a)) into.set(a, []);
     into.get(a).push(c);
     if (!outOf.has(b)) outOf.set(b, []);
     outOf.get(b).push(c);
   }
-  // arrival at an output pin: its through inputs + a LUT level (memoised depth-first; a loop
-  // through the model counts as a start)
-  const arr = new Map();
-  const busy = new Set();
+  // arrival at an input pin / an output pin (memoised depth-first; a loop counts as no path)
+  const arrIn = (i, p) => { let t = -Infinity; for (const c of into.get(key(i, p)) || []) t = Math.max(t, arrOut(c.src, c.srcPin) + c.delay); return t; };
+  const arr = new Map(), busy = new Set();
   const arrOut = (i, p) => {
     const k = key(i, p);
     if (arr.has(k)) return arr.get(k);
-    const d = deps[i][p];
-    if (!d || !d.length || busy.has(k)) return 0;
+    if (arcs[i].start[p] !== undefined) { arr.set(k, arcs[i].start[p]); return arcs[i].start[p]; }
+    if (busy.has(k)) return -Infinity;
     busy.add(k);
-    let t = 0;
-    for (const q of d) for (const c of into.get(key(i, q)) || []) t = Math.max(t, arrOut(c.src, c.srcPin) + delay(c));
+    let t = -Infinity;
+    for (const [q, d] of arcs[i].deps[p] || []) t = Math.max(t, arrIn(i, q) + d);
     busy.delete(k);
-    arr.set(k, t + lut);
-    return t + lut;
+    arr.set(k, t);
+    return t;
   };
   let dmax = 0;
-  for (const c of conns) { c.delay = delay(c); c.arr = arrOut(c.src, c.srcPin) + c.delay; if (c.arr > dmax) dmax = c.arr; }
-  // required times: dmax at every load pin, earlier when the pin passes on to an output
+  for (const c of conns) {
+    c.arr = arrOut(c.src, c.srcPin) + c.delay;
+    const s = arcs[c.dst].setup[c.dstPin];
+    if (s !== undefined && c.arr + s > dmax) dmax = c.arr + s;
+  }
+  // required times: at a setup pin dmax - setup, earlier when the pin passes on to an output
   const req = new Map();
   const reqIn = (i, p) => {
-    let r = dmax;
-    for (const [o, d] of Object.entries(deps[i])) if (d.includes(p) && outOf.has(key(i, o))) r = Math.min(r, reqOut(i, o) - lut);
+    let r = arcs[i].setup[p] !== undefined ? dmax - arcs[i].setup[p] : Infinity;
+    for (const [o, ds] of Object.entries(arcs[i].deps)) for (const [q, d] of ds) if (q === p && outOf.has(key(i, o))) r = Math.min(r, reqOut(i, o) - d);
     return r;
   };
   const reqOut = (i, p) => {
     const k = key(i, p);
     if (req.has(k)) return req.get(k);
-    req.set(k, dmax);   // (loops)
-    let r = dmax;
+    req.set(k, Infinity);   // (loops)
+    let r = Infinity;
     for (const c of outOf.get(k) || []) r = Math.min(r, reqIn(c.dst, c.dstPin) - c.delay);
     req.set(k, r);
     return r;
   };
   for (const c of conns) {
     const slack = reqIn(c.dst, c.dstPin) - c.arr;
-    c.crit = dmax > 0 ? Math.max(0, Math.min(1, 1 - slack / dmax)) : 0;
+    c.crit = dmax > 0 && Number.isFinite(slack) ? Math.max(0, Math.min(1, 1 - slack / dmax)) : 0;
   }
   return { dmax, conns };
 }
 
 /** Place a packed design. Options: seed (1), effort (1: moves per temperature scale with it),
  *  timing (1: how much more the nets on the slowest paths weigh; 0: wirelength only),
- *  log (function for progress lines). */
-export function place(packed, dev, { seed = 1, effort = 1, timing = 1, log = null } = {}) {
+ *  clockSites (bufgmux site name -> Set of the slice sites its clock reaches, or null for all:
+ *  the flip-flops of a clock are kept on them; route.js clockReach), log (function for progress lines). */
+export function place(packed, dev, { seed = 1, effort = 1, timing = 1, clockSites = null, log = null } = {}) {
   const t0 = Date.now();
   if (!dev.slices) throw new PlaceError('place: pass deviceSites(parseXdlrc(…))');
   const random = rng(seed);
@@ -222,12 +230,24 @@ export function place(packed, dev, { seed = 1, effort = 1, timing = 1, log = nul
     bufUsed.add(b.name);
     sites[o.inst] = b;
   }
+  // the slices a clock may reach (clockSites): the flip-flops of each clock stay on them
+  const allowedOf = new Array(N).fill(null);
+  if (clockSites) for (const n of packed.nets) {
+    const d = n.outpins[0] && packed.insts[n.outpins[0].inst];
+    if (!d || d.kind !== 'bufg') continue;
+    const reach = clockSites(sites[n.outpins[0].inst].name);
+    if (reach) for (const p of n.inpins) if (p.pin === 'CLK' && packed.insts[p.inst].kind === 'slice') allowedOf[p.inst] = reach;
+  }
+  const allowedAt = (i, k) => !allowedOf[i] || allowedOf[i].has(dev.slices.get(k).name);
 
   // ---------------------------------------------------------------- slices: legal anchors, occupancy
   const occ = new Map();   // `${x},${y}` -> inst
   const fitsAt = (o, x, y) => {
     if (x % o.align[0] || y % o.align[1]) return false;
-    for (const m of o.members) if (!dev.slices.has(`${x + m.dx},${y + m.dy}`)) return false;
+    for (const m of o.members) {
+      const k = `${x + m.dx},${y + m.dy}`;
+      if (!dev.slices.has(k) || !allowedAt(m.inst, k)) return false;
+    }
     return true;
   };
   const sliceList = [...dev.slices.values()];
@@ -341,6 +361,7 @@ export function place(packed, dev, { seed = 1, effort = 1, timing = 1, log = nul
       displaced.push(i);
     }
     const freed = [...oldKeys].filter(k => !newKeys.includes(k));
+    if (displaced.some((i, j) => !allowedAt(i, freed[j]))) return null;
     const ch = o.members.map((m, j) => [m.inst, dev.slices.get(newKeys[j])]);
     displaced.forEach((i, j) => ch.push([i, dev.slices.get(freed[j])]));
     return { ch, kind: 'slice', o, x, y, displaced, freed };

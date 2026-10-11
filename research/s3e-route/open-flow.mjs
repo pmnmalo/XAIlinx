@@ -2,8 +2,10 @@
 // to WebAssembly (core/synth-open.js) -> pack -> place -> route on the PIPs whose bits are known ->
 // Silinx's bitgen. Needs the device cache (~/.silinx/devices, built from the user's own
 // device report: research/s3e-route/build-device.mjs).
-//   node research/s3e-route/open-flow.mjs <project folder> <out folder> [--json netlist.json] [--seed N] [--effort E] [--timing T] [--no-crc]
-// (seed, effort, timing: the placer's options, core/fpga/place.js). Writes into the out folder: <top>.json (Yosys), placed.xdl, routed.xdl, <top>.bit. Fails (exit 1)
+//   node research/s3e-route/open-flow.mjs <project folder> <out folder> [--json netlist.json] [--seed N] [--effort E] [--timing T] [--timing-route 0|1] [--no-crc]
+// (seed, effort, timing: the placer's options, core/fpga/place.js; --timing-route 0: route for
+// wirelength only, without the timing-driven router (default 1)). After routing, the static timing
+// analysis of core/fpga/timing.js prints the critical path of each clock (also in timing.txt). Writes into the out folder: <top>.json (Yosys), placed.xdl, routed.xdl, <top>.bit. Fails (exit 1)
 // listing the nets that cannot be routed on known PIPs, or the features of the design the bit
 // database does not know: the .bit is written only when it is complete.
 import fs from 'node:fs';
@@ -18,16 +20,17 @@ import { pack } from '../../core/fpga/pack.js';
 import { deviceSites, place, placedXdl } from '../../core/fpga/place.js';
 import { writeXdl as writePlacedXdl } from '../../core/fpga/xdl-write.js';
 import { loadDeviceCache } from '../../core/fpga/device-node.js';
-import { routeDesign, checkRouting } from '../../core/fpga/route.js';
+import { routeDesign, checkRouting, clockReach } from '../../core/fpga/route.js';
 import { bitgen, knownRouting } from '../../core/fpga/bitgen.js';
+import { analyzeTiming, timingReport } from '../../core/fpga/timing.js';
 import { loadDb } from '../s3e-bitstream/db.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); if (i < 0) return def; const v = args[i + 1]; args.splice(i, 2); return v; };
 const flag = name => { const i = args.indexOf(name); if (i >= 0) args.splice(i, 1); return i >= 0; };
-const json = opt('--json', null), seed = +opt('--seed', '1'), effort = +opt('--effort', '1'), timing = +opt('--timing', '1'), noCrc = flag('--no-crc');
+const json = opt('--json', null), seed = +opt('--seed', '1'), effort = +opt('--effort', '1'), timing = +opt('--timing', '1'), timingRoute = opt('--timing-route', '1') !== '0', noCrc = flag('--no-crc');
 const [projDir, outDir] = args;
-if (!projDir || !outDir) { console.error('usage: open-flow.mjs <project folder> <out folder> [--json netlist.json] [--seed N] [--effort E] [--timing T] [--no-crc]'); process.exit(2); }
+if (!projDir || !outDir) { console.error('usage: open-flow.mjs <project folder> <out folder> [--json netlist.json] [--seed N] [--effort E] [--timing T] [--timing-route 0|1] [--no-crc]'); process.exit(2); }
 const proj = JSON.parse(fs.readFileSync(path.join(projDir, 'silinx.json'), 'utf8'));
 const top = proj.top;
 const part = `${proj.device.part}${proj.device.package}${proj.device.speed}`;
@@ -58,15 +61,17 @@ step(`pack (${packed.stats.slices} slices)`, t);
 // place, on the sites of the device cache
 t = Date.now();
 const device = loadDeviceCache(part);
-const r = place(packed, deviceSites(device), { seed, effort, timing });
-console.log(`place: estimated critical path ${r.delay.toFixed(1)}`);
+const db = loadDb();
+const known = knownRouting(db);
+// each clock's flip-flops on the slices its global line reaches through switches of known bits
+const r = place(packed, deviceSites(device), { seed, effort, timing, clockSites: site => clockReach(device, site, known.allowPip) });
+console.log(`place: estimated critical path ${r.delay.toFixed(1)} ns`);
 fs.writeFileSync(path.join(outDir, 'placed.xdl'), writePlacedXdl(placedXdl(packed, r)));
 step('place', t);
 // route on the PIPs the bit database knows
 t = Date.now();
-const db = loadDb();
 const design = parseXdl(fs.readFileSync(path.join(outDir, 'placed.xdl'), 'utf8'));
-const routed = routeDesign(design, device, knownRouting(db));
+const routed = routeDesign(design, device, { ...known, timing: timingRoute });
 const routedText = writeXdl(routed.design);
 fs.writeFileSync(path.join(outDir, 'routed.xdl'), routedText);
 step(`route (${routed.routed} nets, ${routed.pips} PIPs, ${routed.iterations} passes)`, t);
@@ -74,6 +79,10 @@ if (routed.errors.length) fail('routing errors', routed.errors);
 if (routed.failed.length) fail(`${routed.failed.length} nets cannot be routed on PIPs of known bits`, routed.unreached.map(u => `${u.net} -> ${u.inst}.${u.pin}`));
 const check = checkRouting(parseXdl(routedText), device);
 if (!check.ok) fail('routing check', check.problems.slice(0, 50));
+// static timing analysis of the routed design (the delay model of core/fpga/timing.js)
+const sta = timingReport(analyzeTiming(parseXdl(routedText), device));
+fs.writeFileSync(path.join(outDir, 'timing.txt'), `${sta.join('\n')}\n`);
+for (const l of sta) if (/^clock/.test(l)) console.log(`timing: ${l}`);
 // the bitstream
 t = Date.now();
 const { bytes, unknown } = bitgen(routedText, db, { name: `${top}.ncd`, crc: !noCrc, startupClk: proj.impl?.startupClk || 'JtagClk' });
