@@ -120,22 +120,31 @@ const q = x => `"${String(x).replace(/(["\\])/g, '\\$1')}"`;
 // names escaped as in ISE's output
 const cfgText = items => items.map(c => `${c.attr}:${String(c.name).replace(/([: \\])/g, '\\$1')}:${String(c.value).replace(/([ \\])/g, '\\$1')}`).join(' ');
 
-/** XDL text of a design (parseXdl's structure; insts and nets in their order): what xdl -xdl2ncd reads.
- *  The configuration strings are written back as they were read (cfgRaw) when known. */
+/**
+ * XDL text of a design (parseXdl's structure; insts and nets in their order): what xdl -xdl2ncd
+ * reads, and parseXdl reads back unchanged. The one XDL writer of Silinx: for designs read from XDL
+ * (the router, the bitstream tools) and for designs built by the packer and the placer
+ * (core/fpga/place.js placedXdl). The configuration strings are written back as they were read
+ * (cfgRaw) when known; otherwise an instance's cfg items ({ attr, name, value }) have their blanks
+ * and '\' (and ':' in names) escaped, and the design's own cfg is taken as raw XDL text (only its
+ * quotes escaped: its fields keep their '\' escapes). design.ncdVersion: the version after the part
+ * (default v3.2). The text starts with `# comment` lines when design.comment is given.
+ */
 export function writeXdl(design) {
   const L = [];
-  L.push(`design ${q(design.name)} ${design.part} v3.2 ,`);
-  L.push(`  cfg "${design.cfgRaw ?? String(design.cfg || '').replace(/(["\\])/g, '\\$1')}";`, '');
+  for (const c of String(design.comment || '').split('\n').filter(Boolean)) L.push(`# ${c}`);
+  L.push(`design ${q(design.name || 'top')} ${design.part} ${design.ncdVersion || 'v3.2'} ,`);
+  L.push(`  cfg "${design.cfgRaw ?? String(design.cfg || '').replace(/"/g, '\\"')}";`, '');
   for (const i of design.insts) {
     L.push(`inst ${q(i.name)} ${q(i.type)},${i.placed ? `placed ${i.tile} ${i.site}` : 'unplaced'}  ,`);
-    L.push(`  cfg "${i.cfgRaw ?? ` ${cfgText(i.cfg)} `}"`, '  ;');
+    L.push(`  cfg "${i.cfgRaw ?? ` ${cfgText(i.cfg || []).replace(/"/g, '\\"')} `}"`, '  ;');
   }
   L.push('');
   for (const n of design.nets) {
     L.push(`net ${q(n.name)} ${n.type && n.type !== 'wire' ? n.type : ''}, ${n.cfgRaw !== undefined ? `cfg "${n.cfgRaw}",` : ''}`);
-    for (const p of n.outpins) L.push(`  outpin ${q(p.inst)} ${p.pin} ,`);
-    for (const p of n.inpins) L.push(`  inpin ${q(p.inst)} ${p.pin} ,`);
-    for (const p of n.pips) L.push(`  pip ${p.tile} ${p.from} ${p.dir} ${p.to} ,`);
+    for (const p of n.outpins || []) L.push(`  outpin ${q(p.inst)} ${p.pin} ,`);
+    for (const p of n.inpins || []) L.push(`  inpin ${q(p.inst)} ${p.pin} ,`);
+    for (const p of n.pips || []) L.push(`  pip ${p.tile} ${p.from} ${p.dir || '->'} ${p.to} ,`);
     L.push('  ;');
   }
   return L.join('\n') + '\n';

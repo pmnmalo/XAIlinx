@@ -5,7 +5,7 @@ import { parseXdlrc, parseXdl } from '../../core/xdl.js';
 import { readYosysJson } from '../../core/fpga/netlist.js';
 import { pack } from '../../core/fpga/pack.js';
 import { deviceSites, place, placedXdl } from '../../core/fpga/place.js';
-import { writeXdl } from '../../core/fpga/xdl-write.js';
+import { writeXdl } from '../../core/xdl.js';
 
 const [netFile, ucfFile, devFile, outFile, seed = '1', effort = '1', timing = '1'] = process.argv.slice(2);
 let t = Date.now();

@@ -17,7 +17,6 @@ the original design when Silinx simulates both. Method: [docs/OPEN-TOOLCHAIN.md]
 | `lut.js` | `initToEquation(init, k, pins)` / `equationToInit(eq, k, pins)`: a LUT cell's INIT <-> the XDL equation (`#LUT:D=…` in A1..A4, the site pins), for any assignment of the cell's inputs to pins |
 | `pack.js` | `pack(netlist, { ucf, part })`: cells into SLICEL / IBUF / IOB / BUFGMUX instances with their cfg strings, site-pin nets, and the groups that must keep their shape (`macros`) |
 | `place.js` | `deviceSites(parseXdlrc(text))`, `place(packed, dev, { seed, effort, timing })`, `placedXdl(packed, placement)` |
-| `xdl-write.js` | `writeXdl(design)`: the design in `parseXdl`'s shape as XDL text (core/xdl.js reads it back) |
 
 What the packer does:
 

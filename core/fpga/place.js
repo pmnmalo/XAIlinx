@@ -13,7 +13,7 @@
 //   const dev = deviceSites(parseXdlrc(text))   the sites with their positions
 //   const r = place(packed, dev, { seed, effort })
 //     r = { sites: [{ tile, site }] by instance, cost, stats: { moves, temps, seconds, initialCost } }
-//   placedXdl(packed, r) -> a design for writeXdl (core/fpga/xdl-write.js)
+//   placedXdl(packed, r) -> a design for writeXdl (core/xdl.js)
 
 import { instArcs, SPEED_4 } from './timing.js';
 

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseXdl, parseXdlrc, parseCfg, prettyEquation, fpgaModel, evalLut, lutTable } from '../core/xdl.js';
+import { parseXdl, parseXdlrc, parseCfg, prettyEquation, fpgaModel, evalLut, lutTable, writeXdl } from '../core/xdl.js';
 import * as ise from '../server/ise.js';
 
 const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fpga');
@@ -162,4 +162,23 @@ test('fpgaModel keeps the settings of a site (internal multiplexers, inverters) 
   const s = m.insts[0];
   assert.deepEqual(s.opt, { DXMUX: '1', FXMUX: 'F', CYINIT: 'BX', BXINV: 'BX' });
   assert.equal(s.cells[0].thru, true);
+});
+
+test('writeXdl: the one XDL writer, for designs built by the packer / placer (no raw text) too', () => {
+  const d = {
+    name: 'top', part: 'xc3s250ecp132-4', ncdVersion: 'v3.2', comment: 'Written by Silinx\nsecond line',
+    cfg: '_DESIGN_PROP::PIN_INFO:a:/top/PACKED/top/a/a/PAD:IN:0:a\\:0',   // raw XDL: its '\:' kept
+    insts: [{ name: 'p "1"', type: 'IBUF', placed: true, tile: 'BIOIS_X1Y0', site: 'P11', cfg: [{ attr: 'IOATTRBOX', name: '', value: 'LVCMOS33' }, { attr: 'F', name: 'a:b', value: '#LUT:D=A1' }] }],
+    nets: [{ name: 'n', type: 'wire', outpins: [{ inst: 'p "1"', pin: 'I' }], pips: [{ tile: 'CLB_X1Y1', from: 'X0', to: 'OMUX0' }] }, { name: 'gnd', type: 'gnd' }],
+  };
+  const text = writeXdl(d);
+  assert.match(text, /^# Written by Silinx\n# second line\ndesign "top" xc3s250ecp132-4 v3.2 ,\n {2}cfg "_DESIGN_PROP::PIN_INFO:a:\/top\/PACKED\/top\/a\/a\/PAD:IN:0:a\\:0";/);
+  assert.match(text, /inst "p \\"1\\"" "IBUF",placed BIOIS_X1Y0 P11 {2},\n {2}cfg " IOATTRBOX::LVCMOS33 F:a\\:b:#LUT:D=A1 "/);
+  assert.match(text, /pip CLB_X1Y1 X0 -> OMUX0 ,/);   // the default direction
+  // read back unchanged
+  const back = parseXdl(text);
+  assert.equal(back.insts[0].name, 'p "1"');
+  assert.deepEqual(back.insts[0].cfg.map(c => [c.attr, c.name, c.value]), [['IOATTRBOX', '', 'LVCMOS33'], ['F', 'a:b', '#LUT:D=A1']]);
+  assert.equal(back.cfgRaw, d.cfg);
+  assert.deepEqual(back.nets.map(n => [n.name, n.type, n.pips.length]), [['n', 'wire', 1], ['gnd', 'gnd', 0]]);
 });

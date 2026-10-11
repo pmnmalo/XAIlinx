@@ -1,4 +1,4 @@
-// The placer (core/fpga/place.js) and the XDL writer (core/fpga/xdl-write.js), on a small made-up
+// The placer (core/fpga/place.js) and the XDL it is written as (core/xdl.js writeXdl), on a small made-up
 // device (test/fixtures/fpga/place-device.xdlrc, from research/s3e-place/gen-test-device.mjs):
 // legal placements (one instance per site, LOCs kept, carry chains up one column, wide multiplexers
 // in their CLB pattern), wirelength going down, the same seed giving the same placement, and the
@@ -14,7 +14,7 @@ import { readYosysJson } from '../core/fpga/netlist.js';
 import { pack } from '../core/fpga/pack.js';
 import { deviceSites, place, placedXdl, PlaceError, rng, timingGraph, analyzeTiming } from '../core/fpga/place.js';
 import { SPEED_4 } from '../core/fpga/timing.js';
-import { writeXdl } from '../core/fpga/xdl-write.js';
+import { writeXdl } from '../core/xdl.js';
 
 const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fpga');
 const load = n => readYosysJson(fs.readFileSync(path.join(FIX, `${n}.json`), 'utf8'));

@@ -77,6 +77,7 @@ the "What's new" text of its GitHub release.
   primitives (not in Yosys's library) become the equivalent FDRE / FDSE / FDCE / FDPE / FDRSE /
   FDCPE / LDCE / LDPE cells; a process variable's declared initial value is kept (it was lost: the
   flip-flop started at 0); a procedure's variables start at their declared values on every call.
+- One XDL writer (`core/xdl.js` `writeXdl`) for the router, the bitstream tools and the placer (`core/fpga/xdl-write.js` removed).
 - Verilog: SystemVerilog size casts `W'(expr)`.
 - **Differential tests** of the front ends, the simulator and the open synthesis: every example
   and test design is simulated as RTL and as the Yosys netlist with the same random stimulus,
