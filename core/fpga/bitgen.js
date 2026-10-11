@@ -175,6 +175,13 @@ export function designFeatures(design, db) {
       // underscore settings are notes of the tools, except the constant sources (_GND_SOURCE::Y)
       if (c.value === '#OFF' || (c.attr.startsWith('_') && !/^_(GND|VCC)_SOURCE$/.test(c.attr))) continue;
       if (inst.type === 'RAMB16' && /^INITP?_[0-9a-fA-F]{2}$/.test(c.attr)) continue;
+      // a block RAM's output latch values (INIT_A, SRVAL_B…): one feature per bit set, by port width
+      if (inst.type === 'RAMB16' && /^(INIT|SRVAL)_[AB]$/.test(c.attr) && /^[0-9a-fA-F]+$/.test(c.value)) {
+        const width = val(`PORT${c.attr.slice(-1)}_ATTR`);
+        let v = BigInt(`0x${c.value}`);
+        for (let i = 0; v; i++, v >>= 1n) if (v & 1n) feats.push({ tile: inst.tile, feature: `${kind}:${c.attr}@${width}:${i}` });
+        continue;
+      }
       // an I/O's drive, slew and pull are the pad's own features (above)
       if (/^IOB\d/.test(kind) && /^(DRIVEATTRBOX|SLEW|PULL)$/.test(c.attr)) continue;
       if ((c.attr === 'F' || c.attr === 'G') && /^#(LUT|ROM|RAM):/.test(c.value)) {

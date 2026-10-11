@@ -22,8 +22,8 @@ const value = v => {
 };
 const apply = (sets, more = {}, only = null) => text.replace(new RegExp(`(inst "[^"]*" "${spec.type}",placed \\S+ (\\S+)\\s*,\\s*cfg ")([^"]*)(")`, 'g'), (m, a, site, cfg, b) => {
   let c = cfg;
-  if (!only || site === only) sets = { ...sets, ...more };
-  for (const [attr, v0] of Object.entries(sets)) {
+  const here = !only || site === only ? { ...sets, ...more } : sets;
+  for (const [attr, v0] of Object.entries(here)) {
     const v = value(v0);
     const re = new RegExp(`(^|\\s)${attr}::\\S*`);
     if (re.test(c)) c = c.replace(re, (s, sp) => (v === null ? sp : `${sp}${attr}::${v}`));

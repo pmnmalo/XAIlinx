@@ -181,6 +181,7 @@
    "YUSED:0": []
   },
   "SLICE1": {
+   "_GND_SOURCE:X": [],
    "_GND_SOURCE:Y": [],
    "BXINV:BX": [],
    "BXINV:BX_B": ["5,31"],

@@ -1,0 +1,8 @@
+{"source":"stage D: the multipliers (MULT18X18SIO) of a design implemented by ISE (ise-impl.sh), each setting changed on every instance (gen-sitevar.mjs, ana-sitevar.mjs --dx -1): the bits are in the frames of the block-RAM interconnect column before the RAM's (@-1,0); an inverter's bit is set for the pin not inverted",
+"types":{"BRAMSITE2":{"features":{
+"MULT18X18SIO:AREG:0":[],"MULT18X18SIO:AREG:1":["1,-189@-1,0"],"MULT18X18SIO:BREG:0":[],"MULT18X18SIO:BREG:1":["1,-190@-1,0"],"MULT18X18SIO:PREG:0":[],"MULT18X18SIO:PREG:1":["1,-188@-1,0"],
+"MULT18X18SIO:PREG_CLKINVERSION:0":["1,-192@-1,0"],"MULT18X18SIO:PREG_CLKINVERSION:1":[],"MULT18X18SIO:B_INPUT:DIRECT":[],"MULT18X18SIO:B_INPUT:CASCADE":["1,-191@-1,0"],
+"MULT18X18SIO:CLKINV:CLK":[],"MULT18X18SIO:CLKINV:CLK_B":["5,-91@-1,0"],
+"MULT18X18SIO:CEAINV:CEA":["5,-121@-1,0"],"MULT18X18SIO:CEAINV:CEA_B":[],"MULT18X18SIO:CEBINV:CEB":["5,-122@-1,0"],"MULT18X18SIO:CEBINV:CEB_B":[],"MULT18X18SIO:CEPINV:CEP":["5,-115@-1,0"],"MULT18X18SIO:CEPINV:CEP_B":[],
+"MULT18X18SIO:RSTAINV:RSTA":["5,-71@-1,0"],"MULT18X18SIO:RSTAINV:RSTA_B":[],"MULT18X18SIO:RSTBINV:RSTB":["5,-72@-1,0"],"MULT18X18SIO:RSTBINV:RSTB_B":[],"MULT18X18SIO:RSTPINV:RSTP":["5,-65@-1,0"],"MULT18X18SIO:RSTPINV:RSTP_B":[]}},
+"BRAMSITE2_BRK":{"sameAs":"BRAMSITE2","features":{}}}}
