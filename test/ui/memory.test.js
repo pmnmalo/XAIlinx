@@ -147,7 +147,7 @@ uiTest('memory: ISim and the board emulator, run and closed, leave nothing behin
     await waitActive(page, 'isim');
     await page.waitFor(() => /Sim Time: 1,000,000 ps/.test(document.querySelector('.isim-st-time')?.textContent || '') && !window.Silinx.active.view.state.running, [], { what: 'initial 1 us run', timeout: 20000 });
     await closeActive(page);
-  });
+  }, { warmUp: 8 });   // the simulator's code is compiled and optimised over its first runs (once on CI: 50 KB / run after 3)
   await page.click('input[name=view][value=impl]');
   await noLeak(page, 'board emulator: run and close', 5, async () => {
     await page.menu('Tools', 'Board Emulator');
