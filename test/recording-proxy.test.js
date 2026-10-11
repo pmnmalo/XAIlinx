@@ -23,7 +23,13 @@ test('recording proxy: other hosts refused and recorded; local ones pass; resets
       http.get({ host: '127.0.0.1', port, path: `http://127.0.0.1:${local.address().port}/x` }, (res) => { let t = ''; res.on('data', (d) => { t += d; }); res.on('end', () => resolve(t)); }).on('error', reject);
     });
     assert.equal(body, 'local ok');
-    // CONNECT to another host, reset by the client at once (as Chrome does)
+    // CONNECT to another host: refused (502) and recorded
+    const s1 = net.connect(port, '127.0.0.1');
+    await once(s1, 'connect');
+    s1.write('CONNECT example.org:443 HTTP/1.1\r\nHost: example.org:443\r\n\r\n');
+    assert.match(String(await once(s1, 'data')), /^HTTP\/1\.1 502/);
+    s1.resetAndDestroy();
+    // the same, reset by the client at once (as Chrome does; the proxy may not even have read it)
     for (let k = 0; k < 5; k++) {
       const s = net.connect(port, '127.0.0.1');
       await once(s, 'connect');
