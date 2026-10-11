@@ -1,0 +1,49 @@
+name: Nightly
+# The long differential tests (test/corpus/README.md), every night and on demand:
+#   - Yosys's own test designs (fetched at the pinned Yosys version, never committed) through Silinx's
+#     front end, simulator and open synthesis, against test/corpus/expected.json (fails on regressions)
+#   - a new batch of VlogHammer-style random modules (a different seed every run: the run number),
+#     Silinx's simulator against Yosys's netlist; a failing module is reduced and printed
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      count:
+        description: VlogHammer modules
+        default: '500'
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: .cache/yosys-tests
+          key: yosys-tests-${{ hashFiles('scripts/fetch-yosys-tests.mjs') }}
+      - run: npm run fetch:yosys-tests
+      - name: Yosys's test designs (Silinx vs Yosys)
+        run: npm run test:corpus -- --jobs 4
+  vloghammer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: VlogHammer random modules (seed = run number)
+        run: npm run test:vloghammer -- --seed $(( ${{ github.run_number }} * 1000 )) --count ${{ github.event.inputs.count || '500' }} --out vloghammer-failures
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vloghammer-failures
+          path: vloghammer-failures
