@@ -12,7 +12,7 @@ import { routeDesign, checkRouting, netEndpoints } from '../core/fpga/route.js';
 import { parseXdl, writeXdl } from '../core/xdl.js';
 import {
   WIRE, SPEED_4, classOfWires, nodeClasses, nodeDelays, netTree, treePath, pathDelay, distanceDelay,
-  instArcs, timingGraph, analyzeTiming, timingReport,
+  instArcs, timingGraph, analyzeTiming, timingReport, clockPort, checkPeriods,
 } from '../core/fpga/timing.js';
 import { parseDly } from '../research/s3e-route/timing-fit.mjs';
 
@@ -217,4 +217,27 @@ test('timing-fit: reportgen -delay\'s report read back (names wrapped at 80 colu
   assert.deepEqual([...d.keys()], ['u_knight.pattern<1>', `${long}.net_FX`]);
   assert.deepEqual(d.get('u_knight.pattern<1>'), { driver: '$ff$2073.YQ', loads: new Map([['$ff$2073.F1', 0.891], ['$ff$2075.F2', 0.597]]) });
   assert.deepEqual(d.get(`${long}.net_FX`), { driver: `${long}.lut1.FX`, loads: new Map([[`${long}.lut0.FXINB`, 0]]) });
+});
+
+test('PERIOD constraints: a clock found from its port through the clock buffers; met / not met / missing', () => {
+  const d = parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "clk" "IBUF",placed BIOIS_X1Y0 P11 , cfg " " ;
+inst "bufg" "BUFGMUX",placed CLKB_X13Y0 BUFGMUX0 , cfg " " ;
+inst "vcc" "VCC",placed CLKB_X13Y0 VCC_X1Y1 , cfg " " ;
+inst "div" "SLICEL",placed CLB_X1Y1 SLICE_X0Y0 , cfg " " ;
+net "vcc_s" , outpin "vcc" VCCOUT , inpin "bufg" S , ;
+net "clk_in" , outpin "clk" I , inpin "bufg" I0 , ;
+net "clk_g" , outpin "bufg" O , inpin "div" CLK , ;
+net "slow" , outpin "div" YQ , inpin "div" BY , ;
+`);
+  assert.equal(clockPort(d, 'clk_g'), 'clk');
+  assert.equal(clockPort(d, 'slow'), null);   // a clock made by logic
+  const r = { clocks: [{ clock: 'clk_g', period: 17.5 }, { clock: 'slow', period: 3 }] };
+  const checks = checkPeriods(r, d, [{ net: 'CLK', period: 20 }, { net: 'other', period: 10 }]);
+  assert.deepEqual(checks.map(k => [k.port, k.required, k.met, k.missing ?? false]), [['CLK', 20, true, false], ['other', 10, undefined, true]]);
+  assert.equal(checks[0].slack, 2.5);
+  assert.equal(checkPeriods(r, d, [{ net: 'clk', period: 15 }])[0].met, false);
+  const lines = timingReport({ clocks: [{ clock: 'clk_g', period: 17.5, path: [] }] }, checks);
+  assert.equal(lines[0], 'constraint PERIOD 20 ns on CLK: met (period 17.500 ns, slack 2.500 ns)');
+  assert.equal(lines[1], 'constraint PERIOD 10 ns on other: no clock of the design comes from this port');
 });

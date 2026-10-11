@@ -396,9 +396,53 @@ export function analyzeTiming(design, device, opts = {}) {
   return r;
 }
 
-/** A readable report of the critical path of each clock (lines of text). */
-export function timingReport(r) {
+/**
+ * The port a clock net comes from: its driver is followed back through the clock buffers (BUFGMUX,
+ * BUFG, the input buffer) to the I/O site, which the packer names after the port. null when the net
+ * does not come from a pad (a clock made by logic).
+ */
+export function clockPort(design, netName) {
+  const driverOf = new Map();
+  for (const n of design.nets) for (const p of n.outpins || []) driverOf.set(n.name, p.inst);
+  const inst = new Map(design.insts.map(i => [i.name, i]));
+  const inNet = new Map();   // buffer instance -> the net on its data input (I0 / I, not the select S)
+  for (const n of design.nets) for (const p of n.inpins || []) if (/^I0?$/.test(p.pin)) inNet.set(p.inst, n.name);
+  let net = netName;
+  for (let k = 0; k < 6 && net; k++) {
+    const i = inst.get(driverOf.get(net));
+    if (!i) return null;
+    if (/^(IOB|IBUF|IBUFG|IOBS|IOBM|DIFFM|DIFFS)$/.test(i.type)) return i.name;
+    if (!/^BUFG/.test(i.type)) return null;
+    net = inNet.get(i.name);
+  }
+  return null;
+}
+
+/**
+ * The clocks' periods against the PERIOD constraints of the UCF (core/ucf.js parseUcf().clocks:
+ * [{ net, period }], the net being the clock's port): [{ clock, port, required, period, slack, met }]
+ * for each constrained clock found, and { port, required, missing: true } for a constraint on a port
+ * that clocks nothing analyzed.
+ */
+export function checkPeriods(r, design, constraints = []) {
+  const out = [];
+  const byPort = new Map(r.clocks.map(c => [String(clockPort(design, c.clock) || c.clock).toLowerCase(), c]));
+  for (const k of constraints) {
+    const c = byPort.get(String(k.net).toLowerCase());
+    if (!c) { out.push({ port: k.net, required: k.period, missing: true }); continue; }
+    out.push({ clock: c.clock, port: k.net, required: k.period, period: c.period, slack: k.period - c.period, met: c.period <= k.period });
+  }
+  return out;
+}
+
+/** A readable report of the critical path of each clock (lines of text), with the PERIOD checks
+ *  (checkPeriods) when given. */
+export function timingReport(r, checks = []) {
   const lines = [];
+  for (const k of checks) {
+    lines.push(k.missing ? `constraint PERIOD ${k.required} ns on ${k.port}: no clock of the design comes from this port`
+      : `constraint PERIOD ${k.required} ns on ${k.port}: ${k.met ? 'met' : 'NOT MET'} (period ${k.period.toFixed(3)} ns, slack ${k.slack.toFixed(3)} ns)`);
+  }
   for (const c of r.clocks) {
     lines.push(`clock ${c.clock}: minimum period ${c.period.toFixed(3)} ns (${(1000 / c.period).toFixed(1)} MHz)`);
     for (const s of c.path) lines.push(`  ${s.kind.padEnd(12)} ${s.delay.toFixed(3).padStart(7)} ${s.arrival.toFixed(3).padStart(8)}  ${s.inst}.${s.pin}`);

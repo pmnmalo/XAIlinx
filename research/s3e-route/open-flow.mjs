@@ -21,7 +21,8 @@ import { deviceSites, place, placedXdl } from '../../core/fpga/place.js';
 import { loadDeviceCache } from '../../core/fpga/device-node.js';
 import { routeDesign, checkRouting, clockReach } from '../../core/fpga/route.js';
 import { bitgen, knownRouting } from '../../core/fpga/bitgen.js';
-import { analyzeTiming, timingReport } from '../../core/fpga/timing.js';
+import { analyzeTiming, timingReport, checkPeriods } from '../../core/fpga/timing.js';
+import { parseUcf } from '../../core/ucf.js';
 import { loadDb } from '../s3e-bitstream/db.mjs';
 
 const args = process.argv.slice(2);
@@ -79,9 +80,13 @@ if (routed.failed.length) fail(`${routed.failed.length} nets cannot be routed on
 const check = checkRouting(parseXdl(routedText), device);
 if (!check.ok) fail('routing check', check.problems.slice(0, 50));
 // static timing analysis of the routed design (the delay model of core/fpga/timing.js)
-const sta = timingReport(analyzeTiming(parseXdl(routedText), device));
+// against the PERIOD constraints of the project's UCF
+const routedDesign = parseXdl(routedText);
+const sta0 = analyzeTiming(routedDesign, device);
+const checks = checkPeriods(sta0, routedDesign, ucf ? parseUcf(ucf).clocks : []);
+const sta = timingReport(sta0, checks);
 fs.writeFileSync(path.join(outDir, 'timing.txt'), `${sta.join('\n')}\n`);
-for (const l of sta) if (/^clock/.test(l)) console.log(`timing: ${l}`);
+for (const l of sta) if (/^(clock|constraint)/.test(l)) console.log(`timing: ${l}`);
 // the bitstream
 t = Date.now();
 const { bytes, unknown } = bitgen(routedText, db, { name: `${top}.ncd`, crc: !noCrc, startupClk: proj.impl?.startupClk || 'JtagClk' });
