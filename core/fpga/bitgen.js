@@ -135,7 +135,14 @@ export function designFeatures(design, db) {
     if (!inst.placed) continue;
     const kind = siteKind(inst, db);
     // a block RAM's contents: memory bits, not features of the tile
-    if (inst.type === 'RAMB16') brams.push({ site: inst.site, ones: bramBits(inst.cfg) });
+    if (inst.type === 'RAMB16') {
+      brams.push({ site: inst.site, ones: bramBits(inst.cfg) });
+      // the enable and write-enable pins of an unused port: as if not inverted (their bits are set)
+      for (const p of ['ENA', 'ENB', 'WEA', 'WEB']) {
+        const c = inst.cfg.find(x => x.attr === `${p}INV`);
+        if (!c || c.value === '#OFF') feats.push({ tile: inst.tile, feature: `RAMB16:${p}INV:${p}` });
+      }
+    }
     if (!kind) continue;
     // the site is used: some settings are set for every used site
     feats.push({ tile: inst.tile, feature: `${kind}:USED` });

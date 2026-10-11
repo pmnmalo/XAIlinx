@@ -30,9 +30,12 @@ for (const [k, m] of seen) {
   if (pats.length > 1) {
     conflicts++;
     console.error(`conflict ${type} ${feature}: ${pats.map(([p, ts]) => `[${p}] x${ts.length} (${ts.slice(0, 3).join(',')})`).join('  |  ')}`);
+    // a PIP measured without bits in some tiles but with the same bits in two others or more: the
+    // removal did not show where another PIP of the net sets the same bits (the BX <-> BY bounces)
+    if (pats.some(([p, ts]) => p && ts.length >= 2) && pats.some(([p]) => !p)) pats = pats.filter(([p]) => p);
     // keep the most frequent pattern when it is clearly the majority; otherwise leave out the
     // patterns that show a side effect of the removed PIP (artefact) and take the most frequent
-    if (pats[0][1].length < 2 * pats[1][1].length) {
+    if (pats.length > 1 && pats[0][1].length < 2 * pats[1][1].length) {
       pats = resolvePatterns(pats);
       if (pats.length > 1 && pats[0][1].length === pats[1][1].length) continue;
       resolved++;

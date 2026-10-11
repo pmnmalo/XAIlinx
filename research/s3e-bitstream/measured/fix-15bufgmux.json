@@ -1,0 +1,2 @@
+{"source":"stage D: a BUFGMUX switching between two clocks in a design implemented by ISE (test/fixtures/designs/bufgmux): the one bit its tile has beyond the known features (explain-diff.mjs), given to the select pin as not inverted (as for the other sites' inverters); I1_USED without bits like I0_USED; one observation, BUFGMUX_X2Y11 only",
+"types":{"CLKT":{"features":{"BUFGMUX_X2Y11:SINV:S":["2,77"],"BUFGMUX_X2Y11:I1_USED:0":[]}}}}

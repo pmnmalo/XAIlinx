@@ -39,6 +39,15 @@ const used = new Set();
 for (const [attr, vs] of byAttr) {
   const touched = new Set(vs.flatMap(([, d]) => [...d.keys()]));
   const rmX = new Map([...rm].filter(([p]) => touched.has(p) && removed.has(attr)));
+  if (!removed.has(attr)) {
+    // a setting not removed: each value's bits that are set (the base value is the one that
+    // changes nothing; the base's state at a position is the opposite of a variant's)
+    const base = new Map([...touched].map(p => [p, 1 - vs.map(([, d]) => d.get(p)).find(x => x !== undefined)]));
+    for (const [value, d] of vs) feats[`${kind}:${attr}:${value}`] = [...touched].filter(p => (d.has(p) ? d.get(p) : base.get(p)) === 1).sort();
+    const bv = baseVal(attr);
+    if (bv !== undefined && bv !== '#OFF' && !feats[`${kind}:${attr}:${bv}`]) feats[`${kind}:${attr}:${bv}`] = [...touched].filter(p => base.get(p) === 1).sort();
+    continue;
+  }
   for (const p of rmX.keys()) used.add(p);
   for (const [value, d] of vs) {
     const pos = new Set([...rmX.keys(), ...d.keys()]);

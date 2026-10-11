@@ -79,6 +79,21 @@ test('measured database: every memory bit of the block RAMs has its own place', 
   assert.equal(new Set(b.df.map((f, i) => `${f},${b.db[i]}`)).size, 18432);
 });
 
+test('measured database: block-RAM, multiplier and DCM settings', () => {
+  const t = read('xc3s250e-tiles.json').types;
+  const b = t.BRAMSITE2.features;
+  // the port widths: a 3-bit code per port
+  assert.deepEqual(b['RAMB16:PORTA_ATTR:16384X1'], []);
+  assert.deepEqual(b['RAMB16:PORTA_ATTR:2048X9'], ['1,-51@-1,0', '1,-53@-1,0']);
+  // every bit of a 36-bit output latch value has its place
+  for (let i = 0; i < 36; i++) assert.ok(b[`RAMB16:SRVAL_B@512X36:${i}`]?.length, `SRVAL_B bit ${i}`);
+  assert.deepEqual(b['MULT18X18SIO:AREG:1'], ['1,-189@-1,0']);
+  assert.equal(t.BRAMSITE2_BRK.sameAs, 'BRAMSITE2');
+  const d = t.DCM_TL_CENTER.features;
+  for (let m = 2; m <= 32; m++) assert.ok(Array.isArray(d[`DCM:CLKFX_MULTIPLY:${m}`]), `CLKFX_MULTIPLY ${m}`);
+  assert.ok(d['DCM:USED'].length > 20);
+});
+
 test('measured database: SLICEM as RAM / shift register, I/O drive, slew and pull per pad', () => {
   const tiles = read('xc3s250e-tiles.json');
   const f = tiles.types.CENTER_SMALL.features;

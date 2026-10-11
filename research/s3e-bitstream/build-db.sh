@@ -8,6 +8,7 @@
 #                            explain-diff (see README), in the repository
 #   $W/{p1,c1,c2,k1,iop/*}/  PIP batches (gen-pipdrop.mjs, gen-pipcover.mjs, gen-clock.mjs)
 #   $W/{d1,d2}/              PIP batches on blinky and lab11 placed and routed by Silinx (gen-pipdrop.mjs)
+#   $W/pd-*/                 PIP batches on designs implemented by ISE from HDL (ise-impl.sh, gen-pipdrop.mjs)
 #   $W/{c6…c10,n1,n2,b-*}/   PIP batches of stage D (gen-pipcover.mjs: carry outputs, clock pins, the
 #                            constant 1, long lines, terminal tiles, I/O and block-RAM pins)
 #   $W/io1/                  I/O settings (gen-iob.mjs)
@@ -22,7 +23,7 @@ rm -f db/xc3s250e-tiles.json
 node gen-slicedb.mjs measured/slice/*.json > "$W/slice-features.json"
 echo '{"types":{"CENTER_SMALL_BRK":{"sameAs":"CENTER_SMALL"}}}' > "$W/brk.json"
 PIPS=()
-for d in p1 c1 c2 c3 c4 c5 k1 iop/O iop/I d1 d2 c6 c7 c8 c9 c10 n1 n2 n3 b-k1 b-g b-g3; do
+for d in p1 c1 c2 c3 c4 c5 k1 iop/O iop/I d1 d2 c6 c7 c8 c9 c10 n1 n2 n3 b-k1 b-g b-g3 pd-dcm pd-bufgmux pd-brmul pd-bram_sp pd-ramprim pd-dram pd-srl; do
   [ -f "$W/$d/key.json" ] && [ -f "$W/$d/BASE.bit" ] && [ "$(ls "$W/$d" | grep -c "^V.*bit$")" = "$(node -p "require(\"$W/$d/key.json\").L")" ] || continue
   [ -f "$W/$d/pips.json" ] || node ana-pipdrop.mjs "$W/$d" "$W/dev-full.xdlrc" > "$W/$d/pips.json"
   PIPS+=("$W/$d/pips.json")

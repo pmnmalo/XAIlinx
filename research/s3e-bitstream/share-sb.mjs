@@ -62,6 +62,9 @@ if (process.argv[1] && process.argv[1].endsWith('share-sb.mjs')) {
     t.pipsWithoutBits = true;
     for (const f of Object.keys(t.features)) if (/->|=-/.test(f)) { if (t.features[f].length) term++; delete t.features[f]; }
   }
+  // the global clock buffers' settings of a buffer driven from I0 set no bits (measured for 2 of the 8
+  // buffers, BUFGMUX_X2Y1 and X2Y11, in gen-clock.mjs's design; the same settings for the others)
+  for (const type of ['CLKT', 'CLKB']) if (db.types[type]) db.types[type].emptyFeatures = '^BUFGMUX_X\\d+Y\\d+:(USED|DISABLE_ATTR:LOW|GCLK_BUFFER:|GCLKMUX:|I0_USED:0|SINV:S_B)$';
   console.log(`terminal tiles: PIPs without bits (${term} measurements with bits dropped)`);
   console.log(`switch boxes shared: ${same} own features as the CLB's, ${empty} without bits dropped, ${conflict} different (kept)`);
   if (!check) fs.writeFileSync(file, JSON.stringify(db, null, 0).replace(/("[^"]+":\[[^\]]*\]),/g, '$1,\n'));

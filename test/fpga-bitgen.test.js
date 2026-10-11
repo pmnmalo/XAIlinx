@@ -146,7 +146,16 @@ inst "r" "RAMB16",placed BRAMSITE2_X22Y14 RAMB16_X1Y2 ,
   assert.equal(getBit(frames, FW, 403, 2000), 1);
   assert.equal(getBit(frames, FW, 401, 2000), 0);
   // the contents are not features of the tile
-  assert.ok(!unknown.some(u => /INIT/.test(u.feature)));
+  assert.ok(!unknown.some(u => /INIT_00/.test(u.feature)));
+  // the output latch values: one feature per bit set, by port width; the enable and write-enable
+  // pins of an unused port count as not inverted
+  const f = designFeatures(parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "r" "RAMB16",placed BRAMSITE2_X22Y14 RAMB16_X1Y2 ,
+  cfg " PORTA_ATTR::2048X9 INIT_A::105 SRVAL_A::000 ENAINV::ENA_B WEAINV::WEA PORTB_ATTR::#OFF ENBINV::#OFF "
+  ;`), db).feats.map(x => x.feature);
+  assert.deepEqual(f.filter(x => /@/.test(x)), ['RAMB16:INIT_A@2048X9:0', 'RAMB16:INIT_A@2048X9:2', 'RAMB16:INIT_A@2048X9:8']);
+  assert.ok(f.includes('RAMB16:ENBINV:ENB') && f.includes('RAMB16:WEBINV:WEB') && f.includes('RAMB16:ENAINV:ENA_B'));
+  assert.ok(!f.includes('RAMB16:ENAINV:ENA') && !f.some(x => /SRVAL_A/.test(x)));
 });
 
 test('a SLICEM site holding a SLICEM instance has a feature of its own', () => {
