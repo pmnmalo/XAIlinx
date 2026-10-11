@@ -21,7 +21,7 @@ rm -f db/xc3s250e-tiles.json
 node gen-slicedb.mjs measured/slice/*.json > "$W/slice-features.json"
 echo '{"types":{"CENTER_SMALL_BRK":{"sameAs":"CENTER_SMALL"}}}' > "$W/brk.json"
 PIPS=()
-for d in p1 c1 c2 c3 c4 c5 k1 iop/O iop/I d1 d2 c6 c7 c8 c9 c10 n1 n2 b-k1 b-g b-c1 b-d2; do
+for d in p1 c1 c2 c3 c4 c5 k1 iop/O iop/I d1 d2 c6 c7 c8 c9 c10 n1 n2 n3 b-k1 b-g b-g3 b-c1 b-d2; do
   [ -f "$W/$d/key.json" ] && [ -f "$W/$d/BASE.bit" ] && [ "$(ls "$W/$d" | grep -c "^V.*bit$")" = "$(node -p "require(\"$W/$d/key.json\").L")" ] || continue
   [ -f "$W/$d/pips.json" ] || node ana-pipdrop.mjs "$W/$d" "$W/dev-full.xdlrc" > "$W/$d/pips.json"
   PIPS+=("$W/$d/pips.json")

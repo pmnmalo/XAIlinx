@@ -80,5 +80,5 @@ test('measured database: SLICEM as RAM / shift register, I/O drive, slew and pul
   // every pad of the package with an output: the drive, slew, pull and standard changes
   const pads = Object.values(tiles.padFeatures).filter(p => p['O:LVCMOS33']);
   assert.ok(pads.length > 80);
-  for (const p of pads) for (const k of ['O:DRIVE:8', 'O:SLEW:FAST', 'O:PULL:PULLUP', 'O:LVCMOS18']) assert.ok(Array.isArray(p[k]), k);
+  for (const p of pads) for (const k of ['O:DRIVE:8', 'O:SLEW:FAST', 'O:PULL:PULLUP', 'O:LVTTL', 'O:LVTTL:DRIVE:8']) assert.ok(Array.isArray(p[k]), k);
 });

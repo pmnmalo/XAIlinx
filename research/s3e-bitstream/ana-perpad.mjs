@@ -25,10 +25,14 @@ const STD = { STD25: 'LVCMOS25', STD18: 'LVCMOS18', STD15: 'LVCMOS15', STD12: 'L
 const OTHER = { D2: 'DRIVE:2', D4: 'DRIVE:4', D6: 'DRIVE:6', D8: 'DRIVE:8', D16: 'DRIVE:16', FAST: 'SLEW:FAST', PU: 'PULL:PULLUP', PD: 'PULL:PULLDOWN', KEEP: 'PULL:KEEPER' };
 const bases = {};
 const deltas = {};   // pad -> mode -> change -> [bits]
-let far = 0;
+let far = 0, skipped = 0;
 for (const v of key.variants) {
   const f = `${dir}/${v.name}.bit`;
   if (!fs.existsSync(f)) { console.error('missing', f); continue; }
+  // an illegal setting (a drive the standard does not have, in the bank's VCCO: xdl's DRC reports it)
+  // is not a measurement: bitgen still writes a bitstream, with other bits
+  const illegal = n => fs.existsSync(`${dir}/${n}.xlog`) && /illegal condition/.test(fs.readFileSync(`${dir}/${n}.xlog`, 'utf8'));
+  if (illegal(v.name) || illegal(v.base)) { skipped++; continue; }
   bases[v.base] ||= readBit(fs.readFileSync(`${dir}/${v.base}.bit`)).frames;
   const d = diffFrames(bases[v.base], readBit(fs.readFileSync(f)).frames);
   const wins = v.pads.map(site => ({ site, w: window(site), bits: [] })).filter(x => x.w);
@@ -59,5 +63,5 @@ for (const [pad, modes] of Object.entries(deltas)) for (const [mode, chs] of Obj
     (out.padFeatures[pad] ||= {})[feat] = val; n++;
   }
 }
-console.error(`${n} pad features of ${Object.keys(out.padFeatures).length} pads; ${far} changed bits far from every changed pad`);
+console.error(`${n} pad features of ${Object.keys(out.padFeatures).length} pads; ${far} changed bits far from every changed pad; ${skipped} variants with illegal settings left out`);
 console.log(JSON.stringify(out));

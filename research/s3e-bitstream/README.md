@@ -222,6 +222,70 @@ and DRIVE / SLEW / PULL changes; IFF / OFF registers in the IOBs; SLICEM as RAM 
 BUFGMUX with I1 / S used. A design using one of these reports it (`unknown` features of
 `bitgen()`), the bitstream is then incomplete.
 
+### Stage D: designs placed and routed by Silinx, and the rest of the chip (2026-10-11)
+
+**Result: blinky and lab11 placed and routed by Silinx's own placer and router are byte-identical
+to ISE's bitgen from the same XDL, and so are all 12 other reference designs** (ISE's placements of
+switch -> LED, blinky, lab11 and lab11 synthesized by Yosys, with and without CRC; designs with
+distributed RAM and shift registers implemented by ISE: @@RAMRESULT@@).
+
+**Where.** ISE ran on a faster machine (an Intel Mac with Docker: about 9x faster than emulation)
+through `fuzz-remote.sh`; the host is given on the command line only (`SILINX_FUZZ_HOST`).
+@@RUNS@@
+
+**The PIPs of Silinx's own designs.** `gen-pipdrop.mjs` on Silinx's routed blinky and lab11 (20
+variants each) measured all their 9370 PIPs at once.
+
+**One switch box.** Every PIP measured both in a CLB and in an I/O, corner, block-RAM interconnect
+or DCM tile has the same bits, at a fixed offset: the left I/O column 2 frames later, the top I/O row
+16 bits further, the others none (`share-sb.mjs`; `makeDb`: `sameAs` + `shift`). The I/O tiles' own
+pin wires are the CLB's under other names (`IOIS_X0` = `X0`, `IOIS_F1_B0` = `F1_B0`, `IOIS_VCC_WIRE` =
+`VCC_PINWIRE`; not the clock pins `IOIS_CLK0-7`): `rename`. The I/O measurements without bits where
+the CLB has bits were bits given to a neighbouring tile by the analysis (such as `W6END4->E2BEG4` of
+the left I/O tiles): they are dropped. The four block-RAM interconnect tiles of a block RAM have the
+same bits for the block-RAM pins (`unify-io.mjs`).
+
+**PIPs without bits.** The terminal tiles' PIPs (…TERM…: thousands measured, none with bits of its
+own; the few with bits were I/O bits in the same frames), the block-RAM site tiles' PIPs (pin wires),
+the PIPs into the stub wires of the input-only I/O tiles, `VCC_PINWIRE -> pin` (the constant 1 is
+the default) and the I/O sites' settings of standard / drive / slew / pull (their bits are the pad's
+features) set no bits: `pipsWithoutBits`, `emptyFeatures`.
+
+**New ways to reach PIPs.** `gen-pipcover.mjs`: the carry outputs XB / YB as sources (SLICEM: XBMUX
+instead of XBUSED), clock pins as sinks, the tiles' VCC sites (nets of the constant 1), the long
+lines, the block RAMs' and multipliers' pins (`--pins bram`), and `--nosink`: the PIP under test
+ends its route (a net with only an output pin crashes `xdl -xdl2ncd`, so the net gets one unrouted
+slice input): bitgen programs every PIP of a net with pins, also one that leads nowhere.
+`gen-branch.mjs` adds PIPs as dead-end branches to the nets of a routed design: on the global clock
+nets of `gen-clock.mjs` this measured the clock pins from every global line (`GCLKk->CLKn`, 32 per
+CLB, and the I/O tiles' `GCLKk->IOIS_CLKn`). Measurements are cleaned of LUTs cleared by the
+removal of their only route (`stripLutRuns`), and conflicting measurements are resolved by leaving
+out such artefacts (`resolvePatterns`).
+
+**The SLICEM bits (open in stage C).** A SLICEM site holds an instance of type SLICEM or SLICEL;
+of 695 instances in SLICEM sites, the 142 of type SLICEM set the 2 bits (SLICE0 1,55 1,57; SLICE1
+1,23 1,25), the 553 of type SLICEL do not: feature `SLICEk:SLICEM`. As found with RAMs, the 2 USED
+bits of a SLICEM site mean "F / G is not a RAM", the 2 SLICEM bits "F / G is not a shift register".
+
+**Slice settings.** XBUSED, YBUSED, XBMUX, YBMUX: no bits of their own (without them bitgen leaves
+out the carry settings). SLICEM as RAM / shift register (`ise-impl.sh`: designs with RAM16X1S,
+RAM16X1D, RAM32X1S, SRL16(E), SRLC16E and inferred distributed RAMs and shift registers implemented
+by ISE; one setting changed per slice position, `gen-attrdrop.mjs ATTR=FROM>TO`): `F:#RAM`,
+`F:#RAM:SHIFT_REG` (the LUT feature names the mode), `DIF_MUX`, `DIG_MUX`, `SLICEWE0USED`, `YBMUX:0`,
+`WSGEN`; LUT initial values in hexadecimal (`D=0x…`).
+
+**I/O.** `gen-iob.mjs --perpad`: every change of standard, drive, slew and pull on every pad, each
+variant changing the pads of one index in every third I/O tile of each side; a changed bit belongs
+to the changed pad whose own bits are nearest (a pad's bits are not always in its own tile's frames)
+(`ana-perpad.mjs`). A standard is a whole pad feature (`O:LVCMOS18`), drive / slew / pull are changes
+of the pad's bits (`O:DRIVE:8`, `O:SLEW:FAST`, `O:PULL:PULLUP`, `I:PULL:KEEPER`). Checked with all
+92 pads at random settings: inputs of any standard with any pull, and LVCMOS33 outputs with any drive
+/ slew / pull, are byte-identical; the drive and slew of another standard change other bits than
+LVCMOS33's, so they are measured per standard (`--perstd`, features `O:LVTTL:DRIVE:8`…).
+@@IOSTD@@
+
+**Coverage.** @@COVERAGE@@
+
 ### Open synthesis on the board (2026-10-10)
 
 lab11 and the blinky example, synthesized by Silinx's own front end (`core/synth-verilog.js`: the
