@@ -11,9 +11,10 @@ Xilinx ISE 14.7, following the method in [docs/OPEN-TOOLCHAIN.md](../../docs/OPE
 | Script | What it does |
 |---|---|
 | `build-device.mjs` | Builds the graph cache from the full device report; prints sizes and load time |
+| `timing-fit.mjs` | Fits the wire delay model of `core/fpga/timing.js` to ISE's `reportgen -delay` of routed designs |
 | `route.mjs` | Removes a design's PIPs, routes it, writes the XDL, checks it against the graph (`--known`: only PIPs of known bits) |
 | `open-flow.mjs` | The fully open flow for a project: synthesis (Silinx + Yosys), pack, place, route on known PIPs, Silinx's bitgen |
-| `ise-open-check.sh` | Inside the ISE container, the oracle of the open flow: `xdl -xdl2ncd`, `drc`, `bitgen` (CRC on / off), `trce -a` |
+| `ise-open-check.sh` | Inside the ISE container, the oracle of the open flow: `xdl -xdl2ncd`, `drc`, `bitgen` (CRC on / off), `trce -a`, `reportgen -delay` |
 | `check.mjs` | Checks the routing of an XDL design (ISE's or Silinx's) against the graph |
 | `gen-controls.mjs` | Control designs: all PIPs removed, one antenna added, bidirectional PIPs flipped, rewritten unchanged |
 | `ise-check.sh` | Inside the ISE container: `xdl -xdl2ncd`, `drc`, `bitgen`, `trce` for each design |
@@ -205,16 +206,111 @@ Still missing for every placement to route (for the measurement of the database)
 - `measured/learn-7carry.json` lists carry PIPs the device does not have (`COUT0->CIN0`,
   `COUT1->CIN1`, `COUT0->COUT_N0`, `COUT1->COUT_N1`, `COUT2->COUT_N2`); harmless, never used.
 
+## Timing (2026-10-11)
+
+**Result: lab11 at 17.2 ns (58 MHz) by ISE's own timing analyzer, under the board's 20 ns, from
+21.3-23.9 ns; blinky 11.5 ns from 12.1-13.3 ns** — still fully open (known PIPs only, bitstream
+complete, byte-identical to ISE's bitgen, DRC clean). Pieces:
+
+- `core/fpga/timing.js`: a delay model of the XC3S250E -4 and a static timing analysis (STA).
+- `core/fpga/route.js`: timing-driven routing (`routeDesign(…, { timing: true })`), the default of
+  `open-flow.mjs` (`--timing-route 0` turns it off); `clockReach()`.
+- `core/fpga/place.js`: the timing term in ns with the same model; `clockSites` keeps each clock's
+  flip-flops on the slices its global line reaches through known switches.
+- `timing-fit.mjs`: fits the wire model; `scripts/check-open-flow.mjs` now takes open-flow options
+  per project and, with `SILINX_KEEP=1`, keeps ISE's `routed.twr` (`trce -a -v 3`) and
+  `routed.dly` (`reportgen -delay`: the delay of every connection) next to each `routed.xdl`.
+
+**Delay model: measured, not copied.** Only our own fitted numbers are in the code; no Xilinx file.
+
+- *Wires.* Each node of the device graph gets a class from the names of its wires: OMUX, double,
+  hex, long line, input multiplexer (`F1_B…`, `BX…`), clock, I/O, site pin. A routed connection's
+  delay = base + Σ over its nodes (after the driver's pin) of (class delay + class branch load x the
+  branches the net takes off the node) + a load term at the driver. Fitted (non-negative least
+  squares) to ISE's `reportgen -delay` of the same routed designs: 10 486 connections of 7 Silinx
+  routings of blinky and lab11 (with and without timing), **rms error 0.099 ns, 95% within 0.19 ns,
+  worst 0.51 ns**. Fitted values (ns): OMUX 0.345, double 0.269, hex 0.350, long 0.445, input mux
+  0.208 (+0.213 per extra branch), base -0.103, driver +0.049 per extra branch. Splitting doubles /
+  hexes by the tap they are left at, the fanout and an Elmore-like subtree load did not improve the
+  fit. A connection with no general wire (carry chain, F5 / FX -> FXIN) takes 0, as trce says.
+- *Logic.* Every logic element of every path of the `trce -v 3` reports (16 reports of Silinx's
+  routings), keyed by the path through the slice and its settings: LUT (Tilo 0.704 / 0.759 ns,
+  SLICEL / SLICEM), F5 / F6..F8 multiplexers, carry chain (a LUT pin that is also the carry's data
+  input `CY0F` / `CY0G`, BX / BY as data input or `CYINIT`), XOR outputs, flip-flop clock-to-out,
+  setup through X / Y (+0.133) or from BX / BY (0.308), SR. SLICEM and SLICEL differ (the packer
+  writes `SLICEL` everywhere: the site decides). After the fit all but two arcs match trce
+  exactly; Topcyg is 0.888 or 1.131 for the same settings (kept as the data-input rule). A few arcs
+  never seen on a reported path are marked *est.* in `SPEED_4`.
+
+**STA against trce** (minimum period of the main clock, same routed design; `-`: Silinx lower):
+
+| Designs | n | Error |
+|---|---|---|
+| lab11 (9 routings: wirelength and timing-driven, 4 placements) | 9 | -1.8% .. +1.9% |
+| blinky (8 routings) | 8 | -4.0% .. +0.8% |
+| lab11 second clock (`bit_ready`, 2.3-3.0 ns) | 9 | within 0.13 ns |
+| all main clocks | 21 | mean \|error\| 1.4%, worst 4.0% (0.46 ns) |
+
+STA of lab11: 15-50 ms.
+
+**Timing-driven routing.** VPR's criticality term in PathFinder: for a connection of criticality c,
+a node costs c x its delay / 0.3 ns + (1 - c) x its congestion cost, and the A* search starts from
+each tree node at c x its delay from the source, so a critical load gets a direct, fast path and the
+others share wires. Criticality = (1 - slack / period)^k, k from 1 to 8 over the passes, at most
+0.99; first from the distances (placement estimate), then from the STA of the routed delays after
+every pass. The most critical loads of a net are routed first. Once legal, 2 more passes reroute
+the nets of connections with criticality > 0.5; the best legal routing (by the STA) is returned.
+Without it, lab11's 220-262-fanout nets were routed as long chains of doubles (5.1-5.5 ns to
+the critical load).
+
+**Placement.** The placer's timing term used made-up units (a LUT 1, a connection 0.6 + 0.12 / CLB);
+it now uses the model in ns (the slice arcs, a distance estimate: 0.55 + 0.1 ns / tile up to 12
+tiles, then 0.03, fitted to the delays above; carry / multiplexer links 0) and analyses flip-flop
+to flip-flop paths, as trce's period. Gains are small next to the router's (lab11 by the STA: 17.5
+ns with timing 0, 17.1-17.5 with the default). `clockSites` fixes a failure: with the timing
+placer, seeds 1 and 2 of lab11 put a `bit_ready` flip-flop on a slice its clock line reaches only
+through an unknown `GCLKk -> CLKn` switch (no bitstream); now the placer keeps each clock's flip-flops
+on the slices `clockReach(device, bufgmux, allowPip)` finds.
+
+Checked with ISE as the oracle (`SILINX_ISE_HOST=… node scripts/check-open-flow.mjs …`, Intel Mac
+mini, one job at a time; every design: DRC 0 errors 0 warnings, `.bit` byte-identical to ISE's
+bitgen with CRC on and off):
+
+| Design | Placement | Routing | trce (ns) | Silinx STA (ns) | Route time |
+|---|---|---|---|---|---|
+| lab11 | old placer, seed 1 | wirelength (before) | 21.273 | 21.499 | 2.6 s |
+| lab11 | old placer, seed 1 | timing | 17.491 | 17.647 | 3.3 s |
+| lab11 | old placer, seed 2, effort 3, timing 4 | wirelength (before) | 19.649 | 19.556 | |
+| lab11 | old placer, seed 2, effort 3, timing 4 | timing | 17.620 | 17.687 | |
+| lab11 | new placer, seed 1 (default) | wirelength | 20.313 | 20.533 | |
+| **lab11** | **new placer, seed 1 (default)** | **timing (default)** | **17.188** | 17.493 | 3.2-4.3 s |
+| lab11 | new placer, seed 3 | timing | 16.889 | 16.869 | |
+| blinky | old placer, seed 1 | wirelength (before) | 12.667 | 12.497 | 0.4 s |
+| blinky | old placer, seed 1 | timing | 12.024 | 11.562 | 0.45 s |
+| **blinky** | **new placer, seed 1 (default)** | **timing (default)** | **11.494** | 11.030 | 0.35 s |
+| blinky | new placer, seed 2 | timing | 11.404 | 11.165 | |
+
+For comparison, ISE's own par of the same Yosys netlist of lab11 reached 16.67 ns
+(`research/s3e-place/README.md`). The router takes about 25% longer on lab11 (9-12 passes instead
+of 4; the A* estimate of the delay part is 0.1 ns / tile, a little above the fastest wires', to
+keep the search short).
+
+On the board (to test): `~/Silinx-projects/open-flow/lab11-open-timing.bit` (default flow, 17.19
+ns), `lab11-open-timing-s3.bit` (seed 3, 16.89 ns), `blinky-open-timing.bit` (11.49 ns).
+
+Not done / next: hold-time analysis and clock skew (trce's skew was 0-0.02 ns here), pad-to-pad
+and OFFSET paths (`instArcs` has rough pad delays only), the branch loads in the router's cost (the
+STA has them), more designs for the fit (the carry XOR / BY arcs marked *est.*).
+
 ## Open problems
 
-- Timing is not considered: the router minimises wire count and congestion, not delay. It met
-  blinky's 20 ns constraint with a period close to ISE's; critical-path-aware costs (PathFinder's
-  criticality term) are the next step.
+- Timing: no timing constraints (UCF PERIOD) are read yet; the router and the placer minimise the
+  critical path by the model, with no target.
 - GND / VCC sources: the made-up `XDL_DUMMY` source is understood by `xdl -xdl2ncd`, and Silinx's
   bitgen programs what ISE programs for it on SLICEL positions (byte-identical above); SLICEM
   positions as GND sources are not measured (`SLICE0:_GND_SOURCE:Y`).
-- The placer does not know which clock lines reach which slices with known switches (above): it
-  could keep each clock's flip-flops to reachable slices, or choose the global buffer by it.
+- The placer keeps each clock's flip-flops on the slices its line reaches with known switches
+  (`clockSites`, above); it could also choose the global buffer by it.
 - Route-throughs are used only out of the source site (COUT -> YB). LUT route-throughs (to reach
   a pin otherwise unreachable) are never used.
 - Only the XC3S250E has been checked; other Spartan-3E parts need their own report (same code).

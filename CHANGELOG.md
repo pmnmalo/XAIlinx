@@ -59,6 +59,10 @@ the "What's new" text of its GitHub release.
   of the unmeasured XB / YB pins, so blinky and lab11 go from VHDL / Verilog to a `.bit` file with no
   Xilinx tool at all (`research/s3e-route/open-flow.mjs`). Checked against ISE: 0 DRC errors and a
   bitstream byte-identical to ISE's bitgen for the same routed design (8 placements, CRC on and off).
+- **Timing** in the open flow (`core/fpga/timing.js`): a delay model of the XC3S250E -4 fitted to
+  ISE's own timing reports of Silinx-routed designs (0.1 ns rms per connection), a static timing
+  analysis (within 1.4% of ISE's on average), and timing-driven routing and placement: lab11 runs at
+  17.2 ns (58 MHz) instead of 21-24 ns, under the Basys2's 20 ns clock; blinky 11.5 ns.
 - Tests with Xilinx ISE on another machine (for the developers, e.g. an Intel Mac where ISE runs
   natively): `SILINX_ISE_HOST=user@host` runs the real ISE flow tests there (79 s instead of ~15 min
   emulated), and `npm run check:open-flow` checks the fully open flow against ISE (design rule check,
