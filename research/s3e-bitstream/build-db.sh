@@ -12,6 +12,7 @@
 #                            constant 1, long lines, terminal tiles, I/O and block-RAM pins)
 #   $W/io1/                  I/O settings (gen-iob.mjs)
 #   $W/io4/, $W/io7/         I/O settings per pad (gen-iob.mjs --perpad, --perstd)
+#   $W/br1/                  block-RAM contents (gen-bram.mjs)
 #   $W/ref/                  designs implemented by ISE (routed XDL + .bit) for the residual analysis
 set -e
 W=${1:-/tmp/claude-501/bg}
@@ -21,7 +22,7 @@ rm -f db/xc3s250e-tiles.json
 node gen-slicedb.mjs measured/slice/*.json > "$W/slice-features.json"
 echo '{"types":{"CENTER_SMALL_BRK":{"sameAs":"CENTER_SMALL"}}}' > "$W/brk.json"
 PIPS=()
-for d in p1 c1 c2 c3 c4 c5 k1 iop/O iop/I d1 d2 c6 c7 c8 c9 c10 n1 n2 n3 b-k1 b-g b-g3 b-c1 b-d2; do
+for d in p1 c1 c2 c3 c4 c5 k1 iop/O iop/I d1 d2 c6 c7 c8 c9 c10 n1 n2 n3 b-k1 b-g b-g3; do
   [ -f "$W/$d/key.json" ] && [ -f "$W/$d/BASE.bit" ] && [ "$(ls "$W/$d" | grep -c "^V.*bit$")" = "$(node -p "require(\"$W/$d/key.json\").L")" ] || continue
   [ -f "$W/$d/pips.json" ] || node ana-pipdrop.mjs "$W/$d" "$W/dev-full.xdlrc" > "$W/$d/pips.json"
   PIPS+=("$W/$d/pips.json")
@@ -40,3 +41,5 @@ if [ -f "$W/io7/key.json" ] && [ -f "$W/io7/LVCMOS12_BASE.bit" ]; then node ana-
 for f in measured/fix-*.json; do [ -f "$f" ] && node merge-db.mjs "$f"; done
 
 node gen-slicetable.mjs > db/xc3s250e-slice.json
+# block-RAM contents (gen-bram.mjs, stage D)
+if [ -f "$W/br1/V14.bit" ]; then node ana-bram.mjs "$W/br1" > db/xc3s250e-bram.json; fi

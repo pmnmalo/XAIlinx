@@ -7,7 +7,7 @@
 // contents of a LUT. The positions come from the bit database (research/s3e-bitstream/db/*.json),
 // built by observing which bits ISE's bitgen sets for small test designs (docs/OPEN-TOOLCHAIN.md).
 //
-//   const db = makeDb({ layout, lut, tiles, pads })    the JSON files of the database; pads from
+//   const db = makeDb({ layout, lut, tiles, pads, bram })    the JSON files of the database; pads from
 //                                                      padsFromDevice(the user's device cache)
 //   const { bytes, unknown } = bitgen(xdlText, db, { name: 'top.ncd', crc: true })
 //
@@ -33,7 +33,7 @@ export function padsFromDevice(device) {
 }
 
 /** Join the database files (and the pads of the device) into one object with fast lookups. */
-export function makeDb({ layout, lut, tiles, pads = {} }) {
+export function makeDb({ layout, lut, tiles, pads = {}, bram = null }) {
   const types = {};
   for (const [type, t] of Object.entries(tiles.types || {})) {
     const feats = new Map();
@@ -55,7 +55,7 @@ export function makeDb({ layout, lut, tiles, pads = {} }) {
     // tile's IOIS_X0, IOIS_F1_B0… are the CLB's X0, F1_B0…): `rename: [[regexp, replacement], …]`
     t.rename = (t.rename || []).map(([re, to]) => [new RegExp(re, 'g'), to]);
   }
-  return { layout, lut, tiles, types, pads, padFeats: tiles.padFeatures || {} };
+  return { layout, lut, tiles, types, pads, padFeats: tiles.padFeatures || {}, bram };
 }
 
 /** The bits of a feature of a tile type (undefined when the database does not know it). */
@@ -108,14 +108,34 @@ export const shiftBit = (s, sf, sb) => {
   return `${v ? '' : '!'}${df + sf},${db + sb}${dx || dy ? `@${dx},${dy}` : ''}`;
 };
 
-/** The features of a design: [{ tile: name, feature }] plus the LUT contents [{ site, lut: 'F' | 'G', bits }].
+/** The memory bits set by a block RAM's INIT_xx / INITP_xx settings (64 hexadecimal digits each, the
+ *  most significant first): memory bit i = bit i % 256 of INIT_<i / 256>, then the parity bits. */
+export function bramBits(cfg) {
+  const ones = [];
+  for (const c of cfg) {
+    const m = /^INIT(P?)_([0-9a-fA-F]{2})$/.exec(c.attr);
+    if (!m || !/^[0-9a-fA-F]+$/.test(c.value)) continue;
+    const off = (m[1] ? 16384 : 0) + 256 * parseInt(m[2], 16);
+    const hex = c.value.padStart(64, '0');
+    for (let d = 0; d < 64; d++) {
+      const v = parseInt(hex[63 - d], 16);
+      for (let j = 0; j < 4; j++) if ((v >> j) & 1) ones.push(off + 4 * d + j);
+    }
+  }
+  return ones;
+}
+
+/** The features of a design: [{ tile: name, feature }] plus the LUT contents [{ site, lut: 'F' | 'G', bits }]
+ *  and the block RAMs' contents [{ site, ones: [memory bit] }].
  *  A PIP is a feature only on a net with pins (bitgen does not program the routing of a net without
  *  pins). Site settings are `${site kind}${index}:${attr}:${value}` (value '' for a named element). */
 export function designFeatures(design, db) {
-  const feats = [], luts = [];
+  const feats = [], luts = [], brams = [];
   for (const inst of design.insts) {
     if (!inst.placed) continue;
     const kind = siteKind(inst, db);
+    // a block RAM's contents: memory bits, not features of the tile
+    if (inst.type === 'RAMB16') brams.push({ site: inst.site, ones: bramBits(inst.cfg) });
     if (!kind) continue;
     // the site is used: some settings are set for every used site
     feats.push({ tile: inst.tile, feature: `${kind}:USED` });
@@ -154,6 +174,7 @@ export function designFeatures(design, db) {
     for (const c of inst.cfg) {
       // underscore settings are notes of the tools, except the constant sources (_GND_SOURCE::Y)
       if (c.value === '#OFF' || (c.attr.startsWith('_') && !/^_(GND|VCC)_SOURCE$/.test(c.attr))) continue;
+      if (inst.type === 'RAMB16' && /^INITP?_[0-9a-fA-F]{2}$/.test(c.attr)) continue;
       // an I/O's drive, slew and pull are the pad's own features (above)
       if (/^IOB\d/.test(kind) && /^(DRIVEATTRBOX|SLEW|PULL)$/.test(c.attr)) continue;
       if ((c.attr === 'F' || c.attr === 'G') && /^#(LUT|ROM|RAM):/.test(c.value)) {
@@ -172,7 +193,7 @@ export function designFeatures(design, db) {
     const names = pipFeatures(net);
     net.pips.forEach((p, i) => feats.push({ tile: p.tile, feature: names[i] }));
   }
-  return { feats, luts };
+  return { feats, luts, brams };
 }
 
 /** The feature names of a net's PIPs: "from->to". A bidirectional PIP (XDL "a =- b") is used in one
@@ -254,7 +275,7 @@ export function frameData(design, db, device = XC3S250E) {
   const fw = device.frameWords;
   const frames = new Uint32Array(device.frames * fw);
   for (const [f, b] of db.layout.defaults || []) setBit(frames, fw, f, b, 1);
-  const { feats, luts } = designFeatures(design, db);
+  const { feats, luts, brams } = designFeatures(design, db);
   const unknown = [];
   const seen = new Set();
   const clears = [];   // bits a feature clears are cleared after all the bits are set
@@ -289,6 +310,13 @@ export function frameData(design, db, device = XC3S250E) {
     const m = /^SLICE_X(\d+)Y(\d+)$/.exec(site);
     const frame = db.lut.colFrame[m[1]], start = db.lut.rowBit[m[2]] - (lut === 'G' ? 16 : 0);
     for (let a = 0; a < 16; a++) setBit(frames, fw, frame, start + a, bits[a] ? 0 : 1);
+  }
+  // block-RAM contents: every memory bit at its place relative to the block RAM (db.bram)
+  for (const { site, ones } of brams) {
+    const m = /^RAMB16_X(\d+)Y(\d+)$/.exec(site);
+    const B = db.bram;
+    if (!B || !m || B.colFrame[m[1]] === undefined) { if (ones.length) unknown.push({ tile: site, feature: 'RAMB16:INIT' }); continue; }
+    for (const i of ones) setBit(frames, fw, B.colFrame[m[1]] + B.df[i], B.rowBit[m[2]] + B.db[i], B.inverted ? 0 : 1);
   }
   return { frames, unknown };
 }

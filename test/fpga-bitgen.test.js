@@ -4,12 +4,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { parseXdl } from '../core/xdl.js';
-import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, shiftBit, featureBits, knownRouting, lutBits } from '../core/fpga/bitgen.js';
+import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, shiftBit, featureBits, knownRouting, lutBits, bramBits } from '../core/fpga/bitgen.js';
 import { XC3S250E, readBit, getBit, diffFrames } from '../core/fpga/bitstream.js';
 
 const FW = XC3S250E.frameWords;
 // a database for two tiles: CLB_X1Y1 (frames 10-28, bits 100-163) and BIOIS_X1Y0
-const tiny = () => makeDb({
+const tinyParts = () => ({
   layout: { frameWords: 73, frames: 578, brkRows: [9], cols: { 1: 10, 2: 40 }, rows: { 1: 100, 0: 2256 }, defaults: [[3, 37]] },
   lut: { colFrame: { 0: 10, 1: 13 }, rowBit: { 0: 148, 1: 116 } },
   pads: { P11: ['BIOIS_X1Y0', 2] },   // (from the device: padsFromDevice)
@@ -22,6 +22,7 @@ const tiny = () => makeDb({
     },
   },
 });
+const tiny = () => makeDb(tinyParts());
 const design = `design "t" xc3s250ecp132-4 v3.2 , cfg "";
 inst "s" "SLICEL",placed CLB_X1Y1 SLICE_X1Y0 ,
   cfg " F:s_f:#LUT:D=A1 CLKINV::CLK_B XORF:a\\:b: FFX::#OFF _NO_USER_LOGIC:: "
@@ -127,6 +128,25 @@ inst "p" "IOB",placed BIOIS_X1Y0 M5 ,
   const t = makeDb({ layout: {}, lut: {}, tiles: { types: { BIOIS: { emptyFeatures: '^IOB\\d:(USED|PAD:)', features: {} } } } }).types.BIOIS;
   assert.deepEqual(featureBits(t, 'IOB1:PAD:'), []);
   assert.equal(featureBits(t, 'IOB1:IFF1:#FF'), undefined);
+});
+
+test('block RAM contents: INIT_xx / INITP_xx -> memory bits -> their places in the frame data', () => {
+  const zeros = '0'.repeat(64);
+  const cfg = [{ attr: 'INIT_00', value: zeros.slice(1) + '9' }, { attr: 'INIT_0a', value: '8' + zeros.slice(1) }, { attr: 'INITP_01', value: zeros.slice(1) + '1' }, { attr: 'WRITEMODEA', value: 'WRITE_FIRST' }];
+  assert.deepEqual(bramBits(cfg), [0, 3, 2560 + 255, 16384 + 256]);
+  // a database whose memory bit i is at frame colFrame + (i % 4), bit rowBit - (i >> 2)
+  const N = 18432;
+  const db = makeDb({ ...tinyParts(), bram: { colFrame: { 1: 400 }, rowBit: { 2: 2000 }, inverted: false, df: Array.from({ length: N }, (_, i) => i % 4), db: Array.from({ length: N }, (_, i) => -(i >> 2)) } });
+  const d = parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "r" "RAMB16",placed BRAMSITE2_X22Y14 RAMB16_X1Y2 ,
+  cfg " INIT_00::${zeros.slice(1)}9 "
+  ;`);
+  const { frames, unknown } = frameData(d, db);
+  assert.equal(getBit(frames, FW, 400, 2000), 1);
+  assert.equal(getBit(frames, FW, 403, 2000), 1);
+  assert.equal(getBit(frames, FW, 401, 2000), 0);
+  // the contents are not features of the tile
+  assert.ok(!unknown.some(u => /INIT/.test(u.feature)));
 });
 
 test('a SLICEM site holding a SLICEM instance has a feature of its own', () => {

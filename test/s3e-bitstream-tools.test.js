@@ -70,6 +70,15 @@ test('measured database: SLICEM instances, the constant sources and the carry ou
   assert.deepEqual(f['SLICE3:XBUSED:0'], []);
 });
 
+test('measured database: every memory bit of the block RAMs has its own place', () => {
+  const b = read('xc3s250e-bram.json');
+  assert.equal(b.df.length, 18432);
+  assert.equal(Object.keys(b.colFrame).length, 2);
+  assert.equal(Object.keys(b.rowBit).length, 6);
+  // no two memory bits of a block RAM in the same place
+  assert.equal(new Set(b.df.map((f, i) => `${f},${b.db[i]}`)).size, 18432);
+});
+
 test('measured database: SLICEM as RAM / shift register, I/O drive, slew and pull per pad', () => {
   const tiles = read('xc3s250e-tiles.json');
   const f = tiles.types.CENTER_SMALL.features;
