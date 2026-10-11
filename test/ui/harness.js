@@ -520,20 +520,26 @@ export class PwPage extends PageBase {
 export async function startRecordingProxy() {
   const requests = [];
   const local = (host) => /^(127\.\d+\.\d+\.\d+|localhost|\[::1\]|::1)$/i.test(host);
+  // the browser may reset any connection (Chrome on macOS does, to the hosts it is refused): a socket
+  // error is never left unhandled (it would end the test process: ECONNRESET as an uncaught exception)
   const srv = http.createServer((req, res) => {
+    req.on('error', () => {}); res.on('error', () => {});
     let u;
     try { u = new URL(req.url); } catch { res.writeHead(400).end(); return; }
     if (!local(u.hostname)) { requests.push(`${req.method} ${req.url}`); res.writeHead(502, { 'content-type': 'text/plain' }).end('offline (test proxy)'); return; }
-    const up = http.request({ host: u.hostname, port: u.port || 80, path: u.pathname + u.search, method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    const up = http.request({ host: u.hostname, port: u.port || 80, path: u.pathname + u.search, method: req.method, headers: req.headers }, (r) => { r.on('error', () => res.destroy()); res.writeHead(r.statusCode, r.headers); r.pipe(res); });
     up.on('error', () => { try { res.writeHead(502).end(); } catch { /* sent */ } });
+    res.on('close', () => { if (!res.writableFinished) up.destroy(); });   // the browser went away
     req.pipe(up);
   });
   srv.on('connect', (req, sock, head) => {
+    sock.on('error', () => {});
     const [host, port] = req.url.replace(/^\[|\](?=:)/g, '').split(/:(?=\d+$)/);
     if (!local(host)) { requests.push(`CONNECT ${req.url}`); sock.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); return; }
     const up = net.connect(+port, host, () => { sock.write('HTTP/1.1 200 Connection Established\r\n\r\n'); up.write(head); up.pipe(sock); sock.pipe(up); });
     up.on('error', () => sock.destroy());
     sock.on('error', () => up.destroy());
+    sock.on('close', () => up.destroy());
   });
   srv.on('clientError', (e, sock) => sock.destroy());
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
