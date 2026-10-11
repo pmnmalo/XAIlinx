@@ -24,6 +24,7 @@ for (const f of args.filter(a => a !== '--keep')) {
       n++;
     }
   }
+  if (add.padDriveDefault) db.padDriveDefault = { ...(db.padDriveDefault || {}), ...add.padDriveDefault };
   if (add.padFeatures) for (const [p, f] of Object.entries(add.padFeatures)) db.padFeatures = { ...(db.padFeatures || {}), [p]: { ...(db.padFeatures?.[p] || {}), ...f } };
 }
 for (const t of Object.values(db.types)) t.features = Object.fromEntries(Object.entries(t.features).sort(([a], [b]) => a.localeCompare(b)));

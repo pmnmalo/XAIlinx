@@ -6,7 +6,13 @@
 // analysis of the settings themselves (ana-residual.mjs).
 // With --third: every third I/O tile along each side, all its pads (the bits near a used tile are
 // its own).
-//   node gen-iob.mjs dev-full.xdlrc outdir [--sparse | --third]
+// With --perpad: every change on every pad, measured per pad with absolute positions (a setting
+// also changes bits in the neighbouring tile's frames): each variant makes one change on the pads
+// of one pad index in every third I/O tile of each side, so the bits that change are near one
+// changed pad only (ana-perpad.mjs).
+// With --perstd: the same for the drive and slew of the outputs of each other I/O standard (a
+// standard's drive changes other bits than LVCMOS33's): one base design per standard.
+//   node gen-iob.mjs dev-full.xdlrc outdir [--sparse | --third | --perpad | --perstd]
 import fs from 'node:fs';
 import { loadGraph } from './xdlrc-graph.mjs';
 import { makeRouter } from './router.mjs';
@@ -101,6 +107,51 @@ if (mode === '--sparse') {
     n++;
   }
   console.log(`${n} sparse designs`);
+  process.exit(0);
+}
+if (mode === '--perstd') {
+  const coord = p => { const m = /X(\d+)Y(\d+)$/.exec(p.tile); return /^[LR]/.test(p.tile) ? +m[2] : +m[1]; };
+  // the drives of each standard, and its default (the base design's) drive
+  const STDS = { LVTTL: ['12', ['2', '4', '6', '8', '16']], LVCMOS25: ['12', ['2', '4', '6', '8', '16']], LVCMOS18: ['12', ['2', '4', '6', '8', '16']], LVCMOS15: ['8', ['2', '4', '6']], LVCMOS12: ['6', ['2', '4']] };
+  const variants = [];
+  for (const [std, [def, drives]] of Object.entries(STDS)) {
+    const base = `${std}_BASE`;
+    const all = new Map(ro.nets.filter(n => n.out).map(n => [n.pad.site, { IOATTRBOX: std, DRIVEATTRBOX: def }]));
+    write(base, ro, all);
+    const changes = Object.fromEntries([...drives.map(d => [`D${d}`, { DRIVEATTRBOX: d }]), ['FAST', { SLEW: 'FAST' }]]);
+    for (const [cn, ch] of Object.entries(changes)) for (let ph = 0; ph < 3; ph++) for (let k = 0; k < 3; k++) {
+      const sel = ro.nets.filter(n => n.pad.idx === k && coord(n.pad) % 3 === ph && n.out).map(n => n.pad.site);
+      if (!sel.length) continue;
+      const name = `${std}_${cn}_${ph}${k}`;
+      write(name, ro, new Map([...all].map(([s, c]) => [s, sel.includes(s) ? { ...c, ...ch } : c])));
+      variants.push({ name, base, std, change: cn, pads: sel });
+    }
+  }
+  fs.writeFileSync(`${out}/key.json`, JSON.stringify({ pads: pads.map(({ site, tile, idx, inOnly }) => ({ site, tile, idx, inOnly })), STDS, variants }));
+  console.log(`${variants.length} per-standard variants`);
+  process.exit(0);
+}
+if (mode === '--perpad') {
+  const coord = p => { const m = /X(\d+)Y(\d+)$/.exec(p.tile); return /^[LR]/.test(p.tile) ? +m[2] : +m[1]; };
+  const VO = {
+    STD25: { IOATTRBOX: 'LVCMOS25' }, STD18: { IOATTRBOX: 'LVCMOS18' }, STD15: { IOATTRBOX: 'LVCMOS15', DRIVEATTRBOX: '8' }, STD12: { IOATTRBOX: 'LVCMOS12', DRIVEATTRBOX: '6' }, LVTTL: { IOATTRBOX: 'LVTTL' },
+    D2: { DRIVEATTRBOX: '2' }, D4: { DRIVEATTRBOX: '4' }, D6: { DRIVEATTRBOX: '6' }, D8: { DRIVEATTRBOX: '8' }, D16: { DRIVEATTRBOX: '16' },
+    FAST: { SLEW: 'FAST' }, PU: { PULL: 'PULLUP' }, PD: { PULL: 'PULLDOWN' }, KEEP: { PULL: 'KEEPER' },
+  };
+  const VI = { STD25: { IOATTRBOX: 'LVCMOS25' }, STD18: { IOATTRBOX: 'LVCMOS18' }, STD15: { IOATTRBOX: 'LVCMOS15' }, STD12: { IOATTRBOX: 'LVCMOS12' }, LVTTL: { IOATTRBOX: 'LVTTL' }, PU: { PULL: 'PULLUP' }, PD: { PULL: 'PULLDOWN' }, KEEP: { PULL: 'KEEPER' } };
+  write('O_BASE', ro, new Map());
+  write('I_BASE', ri, new Map());
+  const variants = [];
+  for (const [m, r, V] of [['O', ro, VO], ['I', ri, VI]]) for (const [cn, ch] of Object.entries(V)) for (let ph = 0; ph < 3; ph++) for (let k = 0; k < 3; k++) {
+    // output changes on the output pads only (the input-only pads of the output design are inputs)
+    const sel = r.nets.filter(n => n.pad.idx === k && coord(n.pad) % 3 === ph && (m === 'I' || n.out)).map(n => n.pad.site);
+    if (!sel.length) continue;
+    const name = `${m}_${cn}_${ph}${k}`;
+    write(name, r, new Map(sel.map(s => [s, ch])));
+    variants.push({ name, base: `${m}_BASE`, change: cn, pads: sel });
+  }
+  fs.writeFileSync(`${out}/key.json`, JSON.stringify({ pads: pads.map(({ site, tile, idx, inOnly }) => ({ site, tile, idx, inOnly })), base: { O: OUT, I: IN }, VO, VI, variants }));
+  console.log(`${variants.length} per-pad variants`);
   process.exit(0);
 }
 write('O_BASE', ro, new Map());

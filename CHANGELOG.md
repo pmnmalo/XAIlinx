@@ -68,6 +68,12 @@ the "What's new" text of its GitHub release.
   ISE's own timing reports of Silinx-routed designs (0.1 ns rms per connection), a static timing
   analysis (within 1.4% of ISE's on average), and timing-driven routing and placement: lab11 runs at
   17.2 ns (58 MHz) instead of 21-24 ns, under the Basys2's 20 ns clock; blinky 11.5 ns.
+- **Bit database, stage D** (`research/s3e-bitstream`): blinky and lab11 placed and routed by
+  Silinx are byte-identical to ISE's bitgen; the I/O, block-RAM and DCM tiles share the CLB's
+  switch box; the open SLICEM bits are the SLICEM instance type; new: the clock pins from every
+  global line, carry outputs, long lines, terminal tiles, block-RAM contents and settings,
+  multipliers, distributed RAM and shift registers, the top-left DCM, and I/O standard / drive /
+  slew / pull per pad (92% of the device's routing switches; `research/s3e-bitstream/README.md`).
 - Tests with Xilinx ISE on another machine (for the developers, e.g. an Intel Mac where ISE runs
   natively): `SILINX_ISE_HOST=user@host` runs the real ISE flow tests there (79 s instead of ~15 min
   emulated), and `npm run check:open-flow` checks the fully open flow against ISE (design rule check,

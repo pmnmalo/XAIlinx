@@ -14,8 +14,18 @@ const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); if (i < 0) return d; const v = args[i + 1]; args.splice(i, 2); return v; };
 const typesOpt = opt('--types', null), K = +opt('--k', '4'), L = +opt('--L', '8'), w = +opt('--w', '2');
 const skipFile = opt('--skip', null), radius = +opt('--radius', '3');
-// --pins all: also the flip-flop outputs (XQ, YQ) as sources and BX, BY, CE, SR as sinks
-const allPins = opt('--pins', 'lut') === 'all';
+// --pins: the slice pins the nets may use, a list of: lut (X, Y -> F1-4, G1-4, the default), ff (also
+// the flip-flop outputs XQ, YQ as sources and BX, BY, CE, SR as sinks; 'all' = lut,ff), carry (the
+// carry outputs XB, YB as sources), clk (CLK as a sink), vcc (the tiles' VCC sites as sources: nets of
+// the constant 1), bram (the block RAMs' and multipliers' data, address and control pins)
+const pinSets = new Set(opt('--pins', 'lut').replace('all', 'lut,ff').split(','));
+const allPins = pinSets.has('ff');
+// --long: the long lines (LH, LV) may be used wherever they go
+const long = opt('--long', '0') === '1';
+// --nosink 1: the PIP under test ends its route (the net gets an unrouted sink: bitgen programs every
+// PIP of a net with pins, also one that leads nowhere), for PIPs into wires the router cannot take to
+// a slice
+const nosink = opt('--nosink', '0') === '1';
 // --want file.json: { TYPE: ['from->to', …] } only these PIPs (e.g. those of designs to reproduce)
 const wantFile = opt('--want', null);
 const want = wantFile ? new Map(Object.entries(JSON.parse(fs.readFileSync(wantFile, 'utf8'))).map(([t, l]) => [t, new Set(l)])) : null;
@@ -45,14 +55,26 @@ const pipText = e => { const i = e >= 0 ? e : -e - 1; const p = g.pip(i); return
 // slice pins: sources (X, Y outputs) and sinks (F1-4, G1-4)
 const srcPin = new Map(), sinkPin = new Map();   // node -> { site, type, tile, pin }
 for (const [t, tile] of g.tiles.entries()) for (const s of tile.sites) {
+  if (s.type === 'VCC' && pinSets.has('vcc') && s.pins.VCCOUT) srcPin.set(g.node(t, s.pins.VCCOUT.wire), { site: s.name, type: 'VCC', tile: tile.name, t, pin: 'VCCOUT' });
+  if (pinSets.has('bram') && (s.type === 'RAMB16' || s.type === 'MULT18X18SIO')) {
+    for (const [pin, { dir, wire }] of Object.entries(s.pins)) {
+      if (/^BC(IN|OUT)/.test(pin)) continue;   // the multipliers' cascade
+      const info = { site: s.name, type: s.type, tile: tile.name, t, pin };
+      (dir === 'output' ? srcPin : sinkPin).set(g.node(t, wire), info);
+    }
+    continue;
+  }
   if (s.type !== 'SLICEL' && s.type !== 'SLICEM') continue;
   for (const [pin, { wire }] of Object.entries(s.pins)) {
     const n = g.node(t, wire);
     const info = { site: s.name, type: s.type, tile: tile.name, t, pin };
-    if (pin === 'X' || pin === 'Y' || (allPins && (pin === 'XQ' || pin === 'YQ'))) srcPin.set(n, info);
-    if (/^[FG][1-4]$/.test(pin) || (allPins && /^(BX|BY|CE|SR)$/.test(pin))) sinkPin.set(n, info);
+    if ((pinSets.has('lut') && (pin === 'X' || pin === 'Y')) || (allPins && (pin === 'XQ' || pin === 'YQ')) || (pinSets.has('carry') && (pin === 'XB' || pin === 'YB'))) srcPin.set(n, info);
+    if (/^[FG][1-4]$/.test(pin) || (allPins && /^(BX|BY|CE|SR)$/.test(pin)) || (pinSets.has('clk') && pin === 'CLK')) sinkPin.set(n, info);
   }
 }
+// the nodes of the long lines
+const longNode = new Set();
+if (long) for (let i = 0; i < g.pipCount; i++) for (const w of [g.pipA[i], g.pipB[i]]) if (/^L[HV]\d+$/.test(g.names[w])) longNode.add(g.node(g.pipT[i], w));
 const used = new Set();   // nodes taken by a net
 const tileOfNode = n => Math.floor(n / g.W);
 const near = (t0, n) => { const a = g.tiles[t0], b = g.tiles[tileOfNode(n)]; return Math.abs(a.r - b.r) <= radius + 1 && Math.abs(a.c - b.c) <= radius + 1; };
@@ -67,7 +89,7 @@ function search(n0, forward, t0) {
     for (const n of frontier) for (const e of (forward ? outE : inE).get(n) || []) {
       const [a, b] = pipEnds(e);
       const m = forward ? b : a;
-      if (prev.has(m) || used.has(m) || !near(t0, m)) continue;
+      if (prev.has(m) || used.has(m) || !(near(t0, m) || longNode.has(m))) continue;
       prev.set(m, { n, e });
       if (goal.has(m)) {
         const path = [];
@@ -82,6 +104,9 @@ function search(n0, forward, t0) {
 }
 const nodesOf = (path, extra) => { const s = new Set(extra); for (const e of path) for (const n of pipEnds(e)) s.add(n); return s; };
 
+// free LUT input pins of SLICELs, for the nets that end at the PIP under test (--nosink)
+const freeSinks = nosink ? [...sinkPin].filter(([, p]) => p.type === 'SLICEL' && /^[FG][1-4]$/.test(p.pin)) : [];
+const freeSink = () => { for (;;) { const e = freeSinks.pop(); if (!e) throw new Error('no free slice input pin'); if (!used.has(e[0])) { used.add(e[0]); return e[1]; } } };
 const wantTypes = typesOpt ? new Set(typesOpt.split(',')) : null;
 const nets = [], key = {};
 const sliceUse = new Map();   // site -> { type, tile, out: Set(X|Y), in: Set }
@@ -104,16 +129,18 @@ for (const t of tiles) {
     const back = search(a, false, t);
     if (!back) { used.delete(a); used.delete(b); continue; }
     for (const n of nodesOf(back, [])) used.add(n);
-    const fwd = search(b, true, t);
+    const fwd = nosink ? [] : search(b, true, t);
     if (!fwd) { for (const n of nodesOf(back, [])) used.delete(n); used.delete(a); used.delete(b); continue; }
     for (const n of nodesOf(fwd, [])) used.add(n);
     const srcNode = back.length ? pipEnds(back[0])[0] : a;
     const sinkNode = fwd.length ? pipEnds(fwd[fwd.length - 1])[1] : b;
-    const src = srcPin.get(srcNode), sink = sinkPin.get(sinkNode);
+    // (xdl -xdl2ncd crashes on a net without an input pin: a no-sink net gets a free slice input
+    // pin, not routed)
+    const src = srcPin.get(srcNode), sink = nosink ? freeSink() : sinkPin.get(sinkNode);
     used.add(srcNode); used.add(sinkNode);
-    for (const p of [src, sink]) if (!sliceUse.has(p.site)) sliceUse.set(p.site, { ...p, out: new Set(), in: new Set() });
+    for (const p of [src, sink]) if (p && !sliceUse.has(p.site)) sliceUse.set(p.site, { ...p, out: new Set(), in: new Set() });
     sliceUse.get(src.site).out.add(src.pin);
-    sliceUse.get(sink.site).in.add(sink.pin);
+    if (sink) sliceUse.get(sink.site).in.add(sink.pin);
     const p = g.pip(i);
     nets.push({ name: `n${nets.length}`, src, sink, pips: [...back, i, ...fwd], test: i });
     (key[g.tiles[t].name] ||= []).push({ from: p.from, dir: '->', to: p.to, line: nets.length - 1 });
@@ -130,11 +157,22 @@ for (const ps of Object.values(key)) for (const p of ps) testCode.set(p.line, p.
 // the design
 const inst = s => {
   const u = sliceUse.get(s);
+  // a block RAM (1024 x 18 on both ports) or a multiplier (no registers), with the inverters of the
+  // control pins used
+  const inv = pins => [...u.in].filter(p => pins.test(p)).map(p => `${p.replace(/\d+$/, '')}INV::${p.replace(/\d+$/, '')}`);
+  if (u.type === 'RAMB16') return `inst "${s}" "RAMB16",placed ${u.tile} ${s} ,\n  cfg " RAMB16B:${s}_r: PORTA_ATTR::1024X18 PORTB_ATTR::1024X18 WRITEMODEA::WRITE_FIRST WRITEMODEB::WRITE_FIRST ${[...new Set(inv(/^(CLK|EN|WE|SSR)[AB]\d*$/))].join(' ')} "\n  ;`;
+  if (u.type === 'MULT18X18SIO') return `inst "${s}" "MULT18X18SIO",placed ${u.tile} ${s} ,\n  cfg " MULT18X18SIO:${s}_m: AREG::0 BREG::0 PREG::0 B_INPUT::DIRECT "\n  ;`;
+  if (u.type === 'VCC') return `inst "${s}" "VCC",placed ${u.tile} ${s} ,\n  cfg " _NO_USER_LOGIC:: _VCC_SOURCE::VCCOUT "\n  ;`;
   const cfg = ['F:' + s + '_f:#LUT:D=(A1*A2*A3*A4)', 'G:' + s + '_g:#LUT:D=(A1*A2*A3*A4)'];
   if (u.out.has('X')) cfg.push('FXMUX::F', 'XUSED::0');
   if (u.out.has('Y')) cfg.push('GYMUX::G', 'YUSED::0');
+  // the carry chain: XB = CYMUXF, YB = CYMUXG (fed by CYMUXF)
+  if (u.out.has('XB') || u.out.has('YB')) cfg.push(`CYMUXF:${s}_cf:`, 'CYSELF::F', 'CY0F::0', 'CYINIT::BX', `CYMUXG:${s}_cg:`, 'CYSELG::G', 'CY0G::0');
+  // (a SLICEM has no XBUSED: its XB multiplexer chooses the carry (1) or SHIFTOUT)
+  if (u.out.has('XB')) cfg.push(u.type === 'SLICEM' ? 'XBMUX::1' : 'XBUSED::0');
+  if (u.out.has('YB')) cfg.push(...(u.type === 'SLICEM' ? ['YBMUX::1'] : []), 'YBUSED::0');
   // flip-flops when their output or a control input is used
-  if (allPins && [...u.out, ...u.in].some(p => /^(XQ|YQ|BX|BY|CE|SR)$/.test(p))) {
+  if ([...u.out, ...u.in].some(p => /^(XQ|YQ|BX|BY|CE|SR|CLK)$/.test(p))) {
     cfg.push(`FFX:${s}_x:#FF`, `FFY:${s}_y:#FF`, 'FFX_INIT_ATTR::INIT0', 'FFY_INIT_ATTR::INIT0', 'FFX_SR_ATTR::SRLOW', 'FFY_SR_ATTR::SRLOW', 'SYNC_ATTR::ASYNC', 'CLKINV::CLK');
     cfg.push(u.in.has('BX') ? 'DXMUX::0' : 'DXMUX::1', u.in.has('BY') ? 'DYMUX::0' : 'DYMUX::1');
     if (u.in.has('BX')) cfg.push('BXINV::BX');
@@ -150,7 +188,7 @@ const write = (file, v) => {
   nets.forEach((n, j) => {
     const drop = v !== null && testCode.get(j).includes(v);
     const pips = n.pips.filter(e => !(drop && e === n.test)).map(e => `  ${pipText(e)} ,`);
-    txt.push(`net "${n.name}" ,\n  outpin "${n.src.site}" ${n.src.pin} ,\n  inpin "${n.sink.site}" ${n.sink.pin} ,\n${pips.join('\n')}\n  ;`);
+    txt.push(`net "${n.name}"${n.src.type === 'VCC' ? ' vcc' : ''} ,\n  outpin "${n.src.site}" ${n.src.pin} ,\n${n.sink ? `  inpin "${n.sink.site}" ${n.sink.pin} ,\n` : ''}${pips.join('\n')}\n  ;`);
   });
   fs.writeFileSync(file, txt.join('\n') + '\n');
 };

@@ -42,6 +42,10 @@ reference design implemented by ISE (`top.xdl`, `top.bit`, from `top.v` / `top.u
 | `measured/` | Results of the analyses that `build-db.sh` merges (slice harnesses, learned and corrected features: our own observations, no Xilinx files) |
 | `learn-single.mjs`, `unify-io.mjs` | Features measured in the reference designs; shared switch boxes of the I/O tile types |
 | `check-writer.mjs` | Acceptance test of the writer (`core/fpga/bitgen.js`): byte comparison with ISE's bitgen |
+| `fuzz-remote.sh` | Stage D: `run-many.sh` on another machine with Docker and the ISE image (`SILINX_FUZZ_HOST=user@host`, set on the command line only) |
+| `share-sb.mjs`, `gen-branch.mjs`, `ana-perpad.mjs`, `ise-impl.sh` | Stage D: the CLB switch box shared by the I/O, block-RAM and DCM tiles; PIPs measured as dead-end branches of routed nets; I/O settings per pad (`gen-iob.mjs --perpad / --perstd`); designs implemented by ISE from HDL (reference designs) |
+| `gen-bram.mjs`, `ana-bram.mjs`, `db/xc3s250e-bram.json` | Stage D: every memory bit of the block RAMs, by binary codes |
+| `gen-sitevar.mjs`, `ana-sitevar.mjs`, `sitevar-features.mjs`, `bram-features.mjs` | Stage D: the settings of block RAMs, multipliers and DCMs, changed one at a time in designs implemented by ISE |
 | `db/xc3s250e-layout.json`, `db/xc3s250e-tiles.json` | Result of stage C: where every tile is in the frame data; the bits of every measured feature (PIPs, site settings, pads) per tile type |
 
 ## Results
@@ -207,9 +211,9 @@ byte-identical (switch -> LED placed by Silinx, `s4/top`), the others differ in 
 the 1.35 million (unknown PIPs of block-RAM interconnect, DCM and I/O tiles, the carry chain of
 SLICEMs, and the open SLICEM bits below); lab11 synthesized by Yosys differs in 276 bits.
 
-Open: in a SLICEM of an F6 multiplexer tree, ISE sometimes sets 2 more bits per slice (SLICE0:
-1,55 1,57; SLICE1: 1,23 1,25) and sometimes not, with the same settings in the XDL (they are set
-for a `_GND_SOURCE::Y` SLICEM); the condition is not known yet, the database leaves them out.
+Open at the end of stage C (solved in stage D): in a SLICEM of an F6 multiplexer tree, ISE
+sometimes sets 2 more bits per slice (SLICE0: 1,55 1,57; SLICE1: 1,23 1,25) and sometimes not, with
+the same settings in the XDL (they are set for a `_GND_SOURCE::Y` SLICEM).
 
 **Runtime.** About 185 ISE runs (`xdl -xdl2ncd` + `bitgen`, 3 at a time, about 1 minute each under
 emulation), about 4 hours of wall time in batches; the analyses run in seconds.
@@ -219,6 +223,101 @@ the route-throughs; block RAM, multipliers, DCM settings; I/O standards other th
 and DRIVE / SLEW / PULL changes; IFF / OFF registers in the IOBs; SLICEM as RAM / shift register;
 BUFGMUX with I1 / S used. A design using one of these reports it (`unknown` features of
 `bitgen()`), the bitstream is then incomplete.
+
+### Stage D: designs placed and routed by Silinx, and the rest of the chip (2026-10-11)
+
+**Result: blinky and lab11 placed and routed by Silinx's own placer and router are byte-identical
+to ISE's bitgen from the same XDL, and so are all 12 other reference designs** (ISE's placements of
+switch -> LED, blinky, lab11 and lab11 synthesized by Yosys, with and without CRC; designs with
+block RAMs, multipliers, distributed RAM, shift registers, a DCM and a BUFGMUX implemented by ISE
+from HDL (`ise-impl.sh`: the fixtures of `test/fixtures/designs` and two designs of primitives) are
+byte-identical too, but for one bit of an LVCMOS25 input in one design).
+
+**Where.** ISE ran on a faster machine (an Intel Mac with Docker: about 9x faster than emulation)
+through `fuzz-remote.sh`; the host is given on the command line only (`SILINX_FUZZ_HOST`).
+About 1780 ISE runs (`xdl -xdl2ncd` + `bitgen`, 3-4 at a time, about 8 hours of container time in 5 hours
+of wall time), plus 10 designs implemented from HDL (xst, map, par: 8 minutes).
+
+**The PIPs of Silinx's own designs.** `gen-pipdrop.mjs` on Silinx's routed blinky and lab11 (20
+variants each) measured all their 9370 PIPs at once.
+
+**One switch box.** Every PIP measured both in a CLB and in an I/O, corner, block-RAM interconnect
+or DCM tile has the same bits, at a fixed offset: the left I/O column 2 frames later, the top I/O row
+16 bits further, the others none (`share-sb.mjs`; `makeDb`: `sameAs` + `shift`). The I/O tiles' own
+pin wires are the CLB's under other names (`IOIS_X0` = `X0`, `IOIS_F1_B0` = `F1_B0`, `IOIS_VCC_WIRE` =
+`VCC_PINWIRE`; not the clock pins `IOIS_CLK0-7`): `rename`. The I/O measurements without bits where
+the CLB has bits were bits given to a neighbouring tile by the analysis (such as `W6END4->E2BEG4` of
+the left I/O tiles): they are dropped. The four block-RAM interconnect tiles of a block RAM have the
+same bits for the block-RAM pins (`unify-io.mjs`).
+
+**PIPs without bits.** The terminal tiles' PIPs (…TERM…: thousands measured, none with bits of its
+own; the few with bits were I/O bits in the same frames), the block-RAM site tiles' PIPs (pin wires),
+the PIPs into the stub wires of the input-only I/O tiles, `VCC_PINWIRE -> pin` (the constant 1 is
+the default) and the I/O sites' settings of standard / drive / slew / pull (their bits are the pad's
+features) set no bits: `pipsWithoutBits`, `emptyFeatures`.
+
+**New ways to reach PIPs.** `gen-pipcover.mjs`: the carry outputs XB / YB as sources (SLICEM: XBMUX
+instead of XBUSED), clock pins as sinks, the tiles' VCC sites (nets of the constant 1), the long
+lines, the block RAMs' and multipliers' pins (`--pins bram`), and `--nosink`: the PIP under test
+ends its route (a net with only an output pin crashes `xdl -xdl2ncd`, so the net gets one unrouted
+slice input): bitgen programs every PIP of a net with pins, also one that leads nowhere.
+`gen-branch.mjs` adds PIPs as dead-end branches to the nets of a routed design: on the global clock
+nets of `gen-clock.mjs` this measured the clock pins from every global line (`GCLKk->CLKn`, 32 per
+CLB, and the I/O tiles' `GCLKk->IOIS_CLKn`). Measurements are cleaned of LUTs cleared by the
+removal of their only route (`stripLutRuns`), and conflicting measurements are resolved by leaving
+out such artefacts (`resolvePatterns`).
+
+**The SLICEM bits (open in stage C).** A SLICEM site holds an instance of type SLICEM or SLICEL;
+of 695 instances in SLICEM sites, the 142 of type SLICEM set the 2 bits (SLICE0 1,55 1,57; SLICE1
+1,23 1,25), the 553 of type SLICEL do not: feature `SLICEk:SLICEM`. As found with RAMs, the 2 USED
+bits of a SLICEM site mean "F / G is not a RAM", the 2 SLICEM bits "F / G is not a shift register".
+
+**Slice settings.** XBUSED, YBUSED, XBMUX, YBMUX: no bits of their own (without them bitgen leaves
+out the carry settings). SLICEM as RAM / shift register (`ise-impl.sh`: designs with RAM16X1S,
+RAM16X1D, RAM32X1S, SRL16(E), SRLC16E and inferred distributed RAMs and shift registers implemented
+by ISE; one setting changed per slice position, `gen-attrdrop.mjs ATTR=FROM>TO`): `F:#RAM`,
+`F:#RAM:SHIFT_REG` (the LUT feature names the mode), `DIF_MUX`, `DIG_MUX`, `SLICEWE0USED`, `YBMUX:0`,
+`WSGEN`; LUT initial values in hexadecimal (`D=0x…`).
+
+**I/O.** `gen-iob.mjs --perpad`: every change of standard, drive, slew and pull on every pad, each
+variant changing the pads of one index in every third I/O tile of each side; a changed bit belongs
+to the changed pad whose own bits are nearest (a pad's bits are not always in its own tile's frames)
+(`ana-perpad.mjs`). A standard is a whole pad feature (`O:LVCMOS18`), drive / slew / pull are changes
+of the pad's bits (`O:DRIVE:8`, `O:SLEW:FAST`, `O:PULL:PULLUP`, `I:PULL:KEEPER`). Checked with all
+92 pads at random settings: inputs of any standard with any pull, and LVCMOS33 outputs with any drive
+/ slew / pull, are byte-identical; the drive and slew of another standard change other bits than
+LVCMOS33's, so they are measured per standard (`--perstd`, features `O:LVTTL:DRIVE:8`…): LVTTL
+outputs with any drive / slew / pull are byte-identical too. A setting xdl's DRC calls illegal (a
+1.2-1.8 V output in a 3.3 V bank, which is every bank of the Basys2) is not a measurement and is left
+out; LVCMOS25 16 mA with FAST does not compose yet.
+
+**Block RAM** (`gen-bram.mjs`, `ana-bram.mjs`: all 12 block RAMs, 17 designs): every one of the
+18432 memory bits (INIT_xx, INITP_xx) has the same place relative to its block RAM in all 12, stored
+as is (`db/xc3s250e-bram.json`: a column frame per X, a row bit per Y, and the place of each bit).
+The settings are in the interconnect column before the RAM's (`gen-sitevar.mjs` on a design of
+block RAMs and multipliers, one instance changed at a time; `ana-sitevar.mjs --dx -1`,
+`bram-features.mjs`): the port widths are a 3-bit code per port, the write modes one bit each, the
+output latches' initial and reset values (INIT_A, SRVAL_B…) one bit per value bit at a place that
+depends on the port width, stored inverted (`RAMB16:INIT_A@2048X9:3`…); the enable and write-enable
+pins of an unused port count as not inverted. Multipliers: registers, B input and inverters, one bit
+each. **DCM** (`sitevar-features.mjs`): every value of CLKDV_DIVIDE, CLKFX_MULTIPLY (2-32) and
+CLKFX_DIVIDE (1-32), DESKEW_ADJUST (0-15), CLK_FEEDBACK, CLKOUT_PHASE_SHIFT, the frequency modes,
+duty cycle correction, STARTUP_WAIT and the inverters, measured on the top-left DCM only (the other
+three are not measured); PHASE_SHIFT only the 13 values measured; FACTORY_JF1 / JF2 set no bits;
+CLKIN_PERIOD changes 2 bits (not in the database); STARTUP_WAIT also changes the COR register (not
+written yet).
+
+**Coverage.** Of the PIPs (without route-throughs) of one tile of each of the 85 tile types, 64329 in
+all, the database gives 59177 (92%; the I/O tiles of one side share theirs): the CLB all but 4 (the
+SLICEMs' RAM cascade pins), the I/O tiles all but their clock pins from the global lines and the
+DDR / differential pairs, the block-RAM interconnect all but about 30. Left: the DCMs' own pins
+(about 370 PIPs per DCM), the corner tiles' configuration-logic pins (LR, UR), the clock tiles'
+pad / DCM inputs (CLKT, CLKB, CLKL, CLKR), the BUFGMUX I1 / S settings of 7 of the 8 buffers; IFF /
+OFF and DDR registers in the IOBs; the DCMs other than the top-left one. A design using one of these
+reports it (`unknown`). The 113 PIPs measured with different bits in different tiles are resolved
+by majority and artefact rules (`resolvePatterns`, `stripLutRuns`, empty measurements against the
+same bits in two tiles); the rest are BX / BY bounces and global clock pins with bits of the clock
+rows, kept by majority.
 
 ### Open synthesis on the board (2026-10-10)
 

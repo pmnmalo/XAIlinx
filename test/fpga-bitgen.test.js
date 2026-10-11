@@ -4,12 +4,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { parseXdl } from '../core/xdl.js';
-import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, knownRouting } from '../core/fpga/bitgen.js';
+import { makeDb, tileOf, tileBase, designFeatures, pipFeatures, frameData, bitgen, siteKind, padsFromDevice, shiftBit, featureBits, knownRouting, lutBits, bramBits } from '../core/fpga/bitgen.js';
 import { XC3S250E, readBit, getBit, diffFrames } from '../core/fpga/bitstream.js';
 
 const FW = XC3S250E.frameWords;
 // a database for two tiles: CLB_X1Y1 (frames 10-28, bits 100-163) and BIOIS_X1Y0
-const tiny = () => makeDb({
+const tinyParts = () => ({
   layout: { frameWords: 73, frames: 578, brkRows: [9], cols: { 1: 10, 2: 40 }, rows: { 1: 100, 0: 2256 }, defaults: [[3, 37]] },
   lut: { colFrame: { 0: 10, 1: 13 }, rowBit: { 0: 148, 1: 116 } },
   pads: { P11: ['BIOIS_X1Y0', 2] },   // (from the device: padsFromDevice)
@@ -22,6 +22,7 @@ const tiny = () => makeDb({
     },
   },
 });
+const tiny = () => makeDb(tinyParts());
 const design = `design "t" xc3s250ecp132-4 v3.2 , cfg "";
 inst "s" "SLICEL",placed CLB_X1Y1 SLICE_X1Y0 ,
   cfg " F:s_f:#LUT:D=A1 CLKINV::CLK_B XORF:a\\:b: FFX::#OFF _NO_USER_LOGIC:: "
@@ -49,6 +50,128 @@ test('tiles: type from the name, start from the layout', () => {
   // a tile type that shares another's features keeps its own first
   assert.deepEqual(db.types.CENTER_SMALL_BRK.feats.get('X0->OMUX0'), ['6,29']);
   assert.deepEqual(db.types.CENTER_SMALL_BRK.feats.get('OMUX0->E2BEG0'), ['7,1', '!8,2']);
+});
+
+test('tile types share a switch box at an offset of frames and bits', () => {
+  assert.equal(shiftBit('6,28', 2, 0), '8,28');
+  assert.equal(shiftBit('!8,2', 0, 16), '!8,18');
+  assert.equal(shiftBit('5,70@1,0', 2, 16), '7,86@1,0');
+  const db = makeDb({
+    layout: { cols: { 0: 3 }, rows: { 5: 100 } },
+    lut: {},
+    tiles: { types: {
+      CENTER_SMALL: { features: { 'X0->OMUX0': ['6,28'], 'OMUX0->E2BEG0': ['7,1', '!8,2'] } },
+      LIOIS: { sameAs: 'CENTER_SMALL', shift: [2, 0], rename: [['IOIS_VCC_WIRE', 'VCC_PINWIRE'], ['IOIS_', '']], features: { 'IOIS_Y0->OMUX0': ['1,1'] } },
+      TIOIS: { sameAs: 'CENTER_SMALL', shift: [0, 16], features: { 'X0->OMUX0': ['6,99'] } },
+    } },
+  });
+  assert.deepEqual(db.types.LIOIS.feats.get('OMUX0->E2BEG0'), ['9,1', '!10,2']);
+  assert.deepEqual(db.types.LIOIS.feats.get('IOIS_Y0->OMUX0'), ['1,1']);
+  // the type's own wire names: IOIS_X0 is the CLB's X0 (own measurements first)
+  assert.deepEqual(featureBits(db.types.LIOIS, 'IOIS_X0->OMUX0'), ['8,28']);
+  assert.deepEqual(featureBits(db.types.LIOIS, 'IOIS_Y0->OMUX0'), ['1,1']);
+  assert.equal(featureBits(db.types.LIOIS, 'IOIS_X1->OMUX0'), undefined);
+  assert.equal(featureBits(db.types.TIOIS, 'IOIS_X0->OMUX0'), undefined);   // no renaming there
+  // a type whose PIPs set no bits (the terminal tiles): any PIP is known, other features are not
+  const term = makeDb({ layout: {}, lut: {}, tiles: { types: { BTERM: { pipsWithoutBits: true, features: { 'X:Y:Z': ['1,1'] } } } } }).types.BTERM;
+  assert.deepEqual(featureBits(term, 'BTERM_S2BEG7->BTERM_N2MID7'), []);
+  assert.deepEqual(featureBits(term, 'X:Y:Z'), ['1,1']);
+  assert.equal(featureBits(term, 'SLICE0:USED'), undefined);
+  // the type's own measurement first; the shared type is unchanged
+  assert.deepEqual(db.types.TIOIS.feats.get('X0->OMUX0'), ['6,99']);
+  assert.deepEqual(db.types.TIOIS.feats.get('OMUX0->E2BEG0'), ['7,17', '!8,18']);
+  assert.deepEqual(db.types.CENTER_SMALL.feats.get('OMUX0->E2BEG0'), ['7,1', '!8,2']);
+  // in the frame data: LIOIS_X0Y5 starts at frame 3, bit 100
+  const d = parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+net "n" ,
+  outpin "a" X ,
+  inpin "b" F1 ,
+  pip LIOIS_X0Y5 X0 -> OMUX0 ,
+  ;`);
+  const { frames, unknown } = frameData(d, db);
+  assert.deepEqual(unknown, []);
+  assert.equal(getBit(frames, FW, 3 + 8, 128), 1);
+});
+
+test('a SLICEM as RAM or shift register: the LUT feature says which, the initial value in hexadecimal', () => {
+  assert.deepEqual(lutBits('D=0x8001'), [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+  assert.deepEqual(lutBits('D=A1'), [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]);
+  const db = tiny();
+  const d = parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "m" "SLICEM",placed CLB_X1Y1 SLICE_X0Y0 ,
+  cfg " F:m_f:#RAM:D=0x00FF G:m_g:#RAM:D=0x1234 G_ATTR::SHIFT_REG F_ATTR::#OFF FXMUX::F XUSED::0 "
+  ;`);
+  const { feats, luts } = designFeatures(d, db);
+  const names = feats.map(f => f.feature);
+  assert.ok(names.includes('SLICE0:F:#RAM') && names.includes('SLICE0:G:#RAM:SHIFT_REG'));
+  assert.deepEqual(luts.find(l => l.lut === 'F').bits, [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+});
+
+test('an I/O pad: drive, slew and pull are the pad\'s own features, against DRIVE 12, SLOW, no pull', () => {
+  const db = tiny();
+  db.tiles.padDriveDefault = { LVCMOS15: '8' };
+  db.pads.M5 = ['BIOIS_X1Y0', 0];
+  const io = cfg => designFeatures(parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "p" "IOB",placed BIOIS_X1Y0 M5 ,
+  cfg " ${cfg} OUTBUF:p_ob: PAD:p: "
+  ;`), db).feats.filter(f => f.tile === '@M5').map(f => f.feature);
+  assert.deepEqual(io('IOATTRBOX::LVCMOS33 DRIVEATTRBOX::12 SLEW::SLOW'), ['O:LVCMOS33']);
+  assert.deepEqual(io('IOATTRBOX::LVCMOS33 DRIVEATTRBOX::8 SLEW::FAST PULL::PULLUP'), ['O:LVCMOS33', 'O:DRIVE:8', 'O:SLEW:FAST', 'O:PULL:PULLUP']);
+  assert.deepEqual(io('IOATTRBOX::LVCMOS15 DRIVEATTRBOX::8 SLEW::SLOW'), ['O:LVCMOS15']);
+  // the I/O site's own settings of these are not features of the tile
+  const tileFeats = designFeatures(parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "p" "IOB",placed BIOIS_X1Y0 M5 ,
+  cfg " IOATTRBOX::LVCMOS33 DRIVEATTRBOX::8 SLEW::FAST PULL::PULLUP OUTBUF:p_ob: "
+  ;`), db).feats.filter(f => f.tile === 'BIOIS_X1Y0').map(f => f.feature);
+  assert.ok(!tileFeats.some(f => /DRIVE|SLEW|PULL/.test(f)));
+  // an I/O tile type whose site settings have their bits in the pad features
+  const t = makeDb({ layout: {}, lut: {}, tiles: { types: { BIOIS: { emptyFeatures: '^IOB\\d:(USED|PAD:)', features: {} } } } }).types.BIOIS;
+  assert.deepEqual(featureBits(t, 'IOB1:PAD:'), []);
+  assert.equal(featureBits(t, 'IOB1:IFF1:#FF'), undefined);
+});
+
+test('block RAM contents: INIT_xx / INITP_xx -> memory bits -> their places in the frame data', () => {
+  const zeros = '0'.repeat(64);
+  const cfg = [{ attr: 'INIT_00', value: zeros.slice(1) + '9' }, { attr: 'INIT_0a', value: '8' + zeros.slice(1) }, { attr: 'INITP_01', value: zeros.slice(1) + '1' }, { attr: 'WRITEMODEA', value: 'WRITE_FIRST' }];
+  assert.deepEqual(bramBits(cfg), [0, 3, 2560 + 255, 16384 + 256]);
+  // a database whose memory bit i is at frame colFrame + (i % 4), bit rowBit - (i >> 2)
+  const N = 18432;
+  const db = makeDb({ ...tinyParts(), bram: { colFrame: { 1: 400 }, rowBit: { 2: 2000 }, inverted: false, df: Array.from({ length: N }, (_, i) => i % 4), db: Array.from({ length: N }, (_, i) => -(i >> 2)) } });
+  const d = parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "r" "RAMB16",placed BRAMSITE2_X22Y14 RAMB16_X1Y2 ,
+  cfg " INIT_00::${zeros.slice(1)}9 "
+  ;`);
+  const { frames, unknown } = frameData(d, db);
+  assert.equal(getBit(frames, FW, 400, 2000), 1);
+  assert.equal(getBit(frames, FW, 403, 2000), 1);
+  assert.equal(getBit(frames, FW, 401, 2000), 0);
+  // the contents are not features of the tile
+  assert.ok(!unknown.some(u => /INIT_00/.test(u.feature)));
+  // the output latch values: one feature per bit set, by port width; the enable and write-enable
+  // pins of an unused port count as not inverted
+  const f = designFeatures(parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "r" "RAMB16",placed BRAMSITE2_X22Y14 RAMB16_X1Y2 ,
+  cfg " PORTA_ATTR::2048X9 INIT_A::105 SRVAL_A::000 ENAINV::ENA_B WEAINV::WEA PORTB_ATTR::#OFF ENBINV::#OFF "
+  ;`), db).feats.map(x => x.feature);
+  assert.deepEqual(f.filter(x => /@/.test(x)), ['RAMB16:INIT_A@2048X9:0', 'RAMB16:INIT_A@2048X9:2', 'RAMB16:INIT_A@2048X9:8']);
+  assert.ok(f.includes('RAMB16:ENBINV:ENB') && f.includes('RAMB16:WEBINV:WEB') && f.includes('RAMB16:ENAINV:ENA_B'));
+  assert.ok(!f.includes('RAMB16:ENAINV:ENA') && !f.some(x => /SRVAL_A/.test(x)));
+});
+
+test('a SLICEM site holding a SLICEM instance has a feature of its own', () => {
+  const db = tiny();
+  const d = parseXdl(`design "t" xc3s250ecp132-4 v3.2 , cfg "";
+inst "m" "SLICEM",placed CLB_X1Y1 SLICE_X0Y0 ,
+  cfg " _NO_USER_LOGIC:: _GND_SOURCE::Y "
+  ;
+inst "l" "SLICEL",placed CLB_X1Y1 SLICE_X0Y1 ,
+  cfg " F:l_f:#LUT:D=A1 FXMUX::F XUSED::0 "
+  ;`);
+  const names = designFeatures(d, db).feats.map(f => f.feature);
+  assert.ok(names.includes('SLICE0:SLICEM'));
+  assert.ok(names.includes('SLICE0:_GND_SOURCE:Y'));
+  assert.ok(names.includes('SLICE1:USED'));
+  assert.ok(!names.includes('SLICE1:SLICEM'));
 });
 
 test('XDL configuration strings keep escaped colons in names', () => {
@@ -92,7 +215,7 @@ test('frame data: defaults, features at tile offsets, LUTs stored inverted, unkn
   for (let a = 0; a < 16; a++) assert.equal(getBit(frames, FW, 13, 148 + a), a & 1 ? 0 : 1);
   // LUT G (unused): the 16 bits before, all 1
   for (let a = 0; a < 16; a++) assert.equal(getBit(frames, FW, 13, 132 + a), 1);
-  assert.deepEqual(unknown.map(u => u.feature).sort(), ['IOB2:PULL:PULLUP', 'IOB2:USED', 'SLICE2:F:#LUT', 'SLICE2:FXMUX:#OFF', 'SLICE2:XORF:'].sort());
+  assert.deepEqual(unknown.map(u => u.feature).sort(), ['I:PULL:PULLUP', 'IOB2:USED', 'SLICE2:F:#LUT', 'SLICE2:FXMUX:#OFF', 'SLICE2:XORF:'].sort());
   // the pad's own setting (absolute bits)
   assert.equal(getBit(frames, FW, 500, 2300), 1);
 });
