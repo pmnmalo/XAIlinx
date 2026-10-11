@@ -3,7 +3,7 @@
 // parameters with ranges, instance arrays, multi-dimensional memories, race-free clocking.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { out, sim, vinit, vlog } from './lang-util.js';
+import { out, sim, vinit, vlog, diags } from './lang-util.js';
 
 test('division and modulus by zero give x; x operands make arithmetic results all x', () => {
   const r = out(vinit(`
@@ -188,4 +188,74 @@ test('integer overflow wraps around; ** with negative exponents (1, -1, 0 and ot
     $display("%0d %0d %0d %0d %0d", 2 ** -1, 1 ** -2, (-1) ** -3, (-1) ** -2, 0 ** -1);`,
   'integer i;'));
   assert.deepEqual(r, ['-2147483648', '0 1 -1 1 x']);
+});
+
+// Regressions found by comparing Silinx with Yosys on Yosys's own test designs (test/corpus:
+// tests/simple hierarchy.v, hierdefparam.v, scopes.v, verilog_primitives.v, defvalue.sv,
+// realexpr.v, various/pmux2shiftx.v).
+test('a port reads with its own signedness, not its actual\'s (an unsigned port on a signed wire)', () => {
+  const r = out(`module sub(input [3:0] b, output [7:0] y); assign y = b; endmodule
+module tb; reg signed [3:0] b = -4'sd8; wire [7:0] y; sub u(.b(b), .y(y));
+initial #1 $display("%b", y); endmodule`);
+  assert.deepEqual(r, ['00001000']);
+});
+
+test('defparam through generate blocks (foo.mod_a.bar[0].mod_b.p)', () => {
+  const r = out(`module b #(parameter [7:0] v = 44) (output [7:0] y); assign y = v; endmodule
+module a(output [7:0] y0, y1); genvar i; wire [7:0] w0, w1;
+  generate for (i = 0; i < 2; i = i + 1) begin: bar wire [7:0] o; b mod_b(.y(o)); end endgenerate
+  assign y0 = bar[0].o, y1 = bar[1].o; endmodule
+module tb; wire [7:0] y0, y1;
+  generate begin: foo a mod_a(.y0(y0), .y1(y1)); end endgenerate
+  defparam foo.mod_a.bar[0].mod_b.v = 42;
+  defparam foo.mod_a.bar[1].mod_b.v = 43;
+  initial #1 $display("%0d %0d", y0, y1); endmodule`);
+  assert.deepEqual(r, ['42 43']);
+});
+
+test('declarations in functions, tasks and named blocks are local, even with the name of a module port', () => {
+  const r = out(`module m(input [3:0] k, output reg [15:0] x, y);
+  function [15:0] f(input [15:0] x, y); begin f = x + y; begin: blk reg [15:0] x; x = y; f = f ^ x; end f = f ^ x; end endfunction
+  task t(input [3:0] a); reg [15:0] y; begin y = a * 23; x = x + y; end endtask
+  always @* begin x = f(11, 22); y = 7; t(k); end
+endmodule
+module tb; wire [15:0] x, y; m u(.k(4'd10), .x(x), .y(y)); initial #1 $display("%0d %0d", x, y); endmodule`);
+  // f: (11 + 22) ^ 22 ^ 11 = 60; t's y is its own: x = 60 + 230, the port y stays 7
+  assert.deepEqual(r, ['290 7']);
+});
+
+test('not / buf gates with several outputs (every terminal but the last is an output)', () => {
+  const r = out(`module tb; reg i = 1; wire o1, o2, o3, b1, b2;
+  not n(o1, o2, o3, i); buf b(b1, b2, i);
+  initial #1 $display("%b%b%b %b%b", o1, o2, o3, b1, b2); endmodule`);
+  assert.deepEqual(r, ['000 11']);
+});
+
+test('an undeclared gate input is an implicit net (asicworld full_subtracter_gates)', () => {
+  const r = out(`module tb; wire o, p; and g(o, 1'b1, undeclared); or h(p, 1'b1, other);
+  initial #1 $display("%b %b", o, p); endmodule`);
+  assert.deepEqual(r, ['x 1']);
+});
+
+test('a port declared twice is an error', () => {
+  const d = diags('module tb(input [3:0] a, a, output y); endmodule');
+  assert.ok(d.some(x => x.severity === 'error' && /port 'a' is declared twice/.test(x.message)), JSON.stringify(d));
+});
+
+test('port initializers: an output variable starts at its value, an unconnected input takes its default', () => {
+  const r = out(`module cnt #(parameter integer init = 0) (input clk, output logic [3:0] q = init, input [3:0] d = 10);
+  always @(posedge clk) q <= q + d; endmodule
+module tb; reg clk = 0; wire [3:0] q1, q2;
+  cnt #(1) a(.clk(clk), .q(q1), .d(4'd4)); cnt #(2) b(.clk(clk), .q(q2));
+  initial begin #1 $display("%0d %0d", q1, q2); clk = 1; #1 $display("%0d %0d", q1, q2); end endmodule`);
+  assert.deepEqual(r, ['1 2', '5 12']);
+});
+
+test('?: with a real operand is real (1 ? -1 : 1.0 assigned to a 64-bit vector is -1)', () => {
+  const r = out(vinit(`
+    y = 1 ? -1 : 'd0 ? 1.5 : 0.0; $display("%h", y);
+    y = 1 ? -1 : 'd0; $display("%h", y);`,
+  `reg [63:0] y;`));
+  // the second: an unsigned ?: ('d0 is unsigned), -1 zero-extended from 32 bits
+  assert.deepEqual(r, ['ffffffffffffffff', '00000000ffffffff']);
 });

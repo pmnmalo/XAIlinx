@@ -269,9 +269,11 @@ function elabPort(E, p, conn) {
   if (conn && conn.node && conn.node.k === 'sig' && conn.node.t.w === t.w && (t.kind === 'array') === (conn.node.t.kind === 'array') && p.dir !== undefined) {
     const sig = conn.node.sig;
     // VHDL: the driver of an out port starts at the port's default; with the port aliased to its
-    // actual that is the actual's initial value (unless the actual was given one itself)
-    if (p.default && p.dir !== 'in' && E.lang === 'vhdl' && !sig.portInitSet && !sig.hasInit) {
+    // actual that is the actual's initial value (unless the actual was given one itself); Verilog:
+    // the initializer of an output variable (output logic [3:0] q = 1)
+    if (p.default && p.dir !== 'in' && !sig.portInitSet && !sig.hasInit) {
       sig.init = init; sig.val = init; sig.portInitSet = true;
+      if (E.lang === 'verilog') { sig.hasInit = true; sig.netZ = false; }
     }
     E.sc.def(p.name, { kind: 'sig', sig, t });
     E.inst.ports.push({ name: p.name, dir: p.dir, sig, t, alias: true, conn: conn.text });
@@ -279,6 +281,7 @@ function elabPort(E, p, conn) {
   }
   const sig = newSignal(E, p.name, t, init, 'port', p.loc);
   sig.portDir = p.dir;
+  if (p.default && E.lang === 'verilog') sig.hasInit = true;   // (input [3:0] d = 10, output logic q = 1)
   E.sc.def(p.name, { kind: 'sig', sig, t });
   E.inst.ports.push({ name: p.name, dir: p.dir, sig, t, alias: false, conn: conn?.text ?? null });
   if (!conn) return;
@@ -348,7 +351,8 @@ function elabItems(E, items) {
 function elabAssignItem(E, it) {
   // Verilog: an undeclared target of a continuous assignment is an implicit scalar net
   const target = bindLvalue(E.lang === 'verilog' ? { ...E, implicitNets: true } : E, it.target, it.loc);
-  const value = bindExpr(E, it.value, target.t, it.loc);
+  // (and so is an undeclared input of a gate primitive: and g(o, a, undeclared))
+  const value = bindExpr(it.gate && E.lang === 'verilog' ? { ...E, implicitNets: true } : E, it.value, target.t, it.loc);
   if (E.lang === 'verilog') ctxSize(value, target.t.w);
   checkAssignable(E, target, value, it.loc);
   const body = { k: 'asg', target, value, nb: E.lang === 'vhdl', delay: it.delay ? bindExpr(E, it.delay) : null, delayUnit: E.lang === 'vhdl' ? 1 : E.timeUnit, prec: E.timePrec, loc: it.loc };
@@ -460,11 +464,14 @@ function elabChild(E, it) {
     ov.set(pname, { val: constOf(E, n, it.loc), t: n.t, text: n.strText });
   });
   // defparams naming this instance: its own parameters, and the ones further down (passed on)
+  // (an instance in generate blocks is named by them: foo.mod_a, bar[0].mod_b)
+  const segs = name.split('.');
   for (const dp of E.defparams || []) {
-    if (dp.path[0] !== it.name || dp.path.length < 2) continue;
-    if (dp.path.length > 2) { (ov.defparams ||= []).push({ ...dp, path: dp.path.slice(1) }); continue; }
-    const decl = mod.params.find(x => x.name === dp.path[1] || (ci && x.name.toLowerCase() === dp.path[1].toLowerCase()));
-    if (!decl) { diag(E, `defparam: module '${mod.name}' has no parameter '${dp.path[1]}'`, it.loc); continue; }
+    if (dp.path.length <= segs.length || segs.some((s, i) => s !== dp.path[i])) continue;
+    const rest = dp.path.slice(segs.length);
+    if (rest.length > 1) { (ov.defparams ||= []).push({ ...dp, path: rest }); continue; }
+    const decl = mod.params.find(x => x.name === rest[0] || (ci && x.name.toLowerCase() === rest[0].toLowerCase()));
+    if (!decl) { diag(E, `defparam: module '${mod.name}' has no parameter '${rest[0]}'`, it.loc); continue; }
     ov.set(decl.name, { val: dp.val, t: dp.t });
   }
   const child = elabInstance(E.ctx, mod, name, `${E.inst.path}.${name}`, ov, portConns, E.inst, (E.depth || 0) + 1);
@@ -780,31 +787,37 @@ function fold(n) {
 }
 
 // Verilog context-determined sizing: propagate an evaluation width into the expression
-// (self-determined operands are sized with their own width).
-export function ctxSize(n, w) {
+// (self-determined operands are sized with their own width), and the signedness of the expression:
+// the operands of a context-determined operator take the sign of the whole expression before they
+// are extended (IEEE 1364-2005 5.5.4: in `u + (s1 + s2)` with an unsigned u, s1 and s2 are
+// zero-extended). n.es is that evaluation sign (n.t.s stays the operator's own type).
+export function ctxSize(n, w, s = n?.t?.s) {
   if (!n || !n.t) return;
-  const self = x => { if (x && x.t) ctxSize(x, x.t.w); };
+  const self = x => { if (x && x.t) ctxSize(x, x.t.w, x.t.s); };
+  s = !!s;
   switch (n.k) {
     case 'bin': {
       const o = n.o;
       if (['==', '!=', '===', '!==', '<', '<=', '>', '>='].includes(o)) {
-        const m = Math.max(n.a.t.w, n.b.t.w);
-        n.cw = m; ctxSize(n.a, m); ctxSize(n.b, m);
+        // the operands are sized (and signed) with each other, not with the context
+        const m = Math.max(n.a.t.w, n.b.t.w), os = !!(n.a.t.s && n.b.t.s);
+        n.cw = m; ctxSize(n.a, m, os); ctxSize(n.b, m, os);
         return;
       }
       if (o === '&&' || o === '||') { self(n.a); self(n.b); return; }
       n.ew = Math.max(n.t.w, w);
-      ctxSize(n.a, n.ew);
-      if (!['<<', '>>', '<<<', '>>>', '**', 'rol', 'ror'].includes(o)) ctxSize(n.b, n.ew);
+      n.es = s;
+      ctxSize(n.a, n.ew, s);
+      if (!['<<', '>>', '<<<', '>>>', '**', 'rol', 'ror'].includes(o)) ctxSize(n.b, n.ew, s);
       else self(n.b);
       return;
     }
     case 'un':
-      if (n.o === '~' || n.o === '-') { n.ew = Math.max(n.t.w, w); ctxSize(n.a, n.ew); }
+      if (n.o === '~' || n.o === '-') { n.ew = Math.max(n.t.w, w); n.es = s; ctxSize(n.a, n.ew, s); }
       else self(n.a);
       return;
     case 'cond':
-      n.ew = Math.max(n.t.w, w); self(n.c); ctxSize(n.a, n.ew); ctxSize(n.b, n.ew);
+      n.ew = Math.max(n.t.w, w); n.es = s; self(n.c); ctxSize(n.a, n.ew, s); ctxSize(n.b, n.ew, s);
       return;
     case 'cat': for (const p of n.parts) self(p); return;
     case 'repl': self(n.a); return;
@@ -813,7 +826,7 @@ export function ctxSize(n, w) {
     case 'c':
       if (n.src) {
         // folded constant: size the original expression and evaluate it again
-        ctxSize(n.src, w);
+        ctxSize(n.src, w, s);
         try { n.val = evalE(n.src, constCtx()); } catch { /* keep the self-determined value */ }
       } else if (n.fillBit && w > n.val.w) {
         n.val = V.fromBits(n.fillBit.repeat(w));
@@ -985,9 +998,16 @@ function bindExpr0(E, e, expect, loc) {
     case 'binary': return fold(bindBinary(E, e, expect, loc));
     case 'cond': {
       const c = bindExpr(E, e.cond, null, loc);
-      const a = bindExpr(E, e.then, expect, loc), b = bindExpr(E, e.else, expect, loc);
+      let a = bindExpr(E, e.then, expect, loc), b = bindExpr(E, e.else, expect, loc);
+      if (E.lang === 'verilog' && (a.t.kind === 'real') !== (b.t.kind === 'real')) {
+        // Verilog: an operand of type real makes the whole ?: real (IEEE 1364-2005 4.8.1)
+        const toReal = x => (x.t.kind === 'real' ? x : fold({ k: 'conv', a: x, ext: !!x.t.s, t: REAL }));
+        a = toReal(a); b = toReal(b);
+      }
       const w = Math.max(a.t.w, b.t.w);
-      let t = a.t.kind === b.t.kind && a.t.w === b.t.w ? a.t : vecT(w, a.t.s && b.t.s);
+      // (Verilog: signed only when both operands are, even at the same width)
+      const sameSign = !!a.t.s === !!b.t.s || E.lang === 'vhdl';
+      let t = a.t.kind === b.t.kind && a.t.w === b.t.w && sameSign ? a.t : vecT(w, a.t.s && b.t.s);
       if (a.t.kind === 'array' || a.t.kind === 'str') t = a.t;
       // VHDL `x when c else y`: a condition that is not true selects the else value
       return fold({ k: 'cond', c, a, b, t, vh: E.lang === 'vhdl' });
@@ -1772,9 +1792,14 @@ function bindStmt0(E, s, loc) {
         body: bindStmt(E, it.body, loc),
       }));
       if (E.lang === 'verilog') {
-        const m = Math.max(sel.t.w, ...items.flatMap(it => it.choices.filter(c => !c.range).map(c => c.t.w)));
-        ctxSize(sel, m);
-        for (const it of items) for (const c of it.choices) if (!c.range) ctxSize(c, m);
+        // the case expression and the items are sized with each other, signed only when all are
+        // (IEEE 1364-2005 9.5)
+        const choices = items.flatMap(it => it.choices.filter(c => !c.range));
+        const m = Math.max(sel.t.w, ...choices.map(c => c.t.w));
+        const ss = !!sel.t.s && choices.every(c => c.t.s);
+        ctxSize(sel, m, ss);
+        for (const c of choices) ctxSize(c, m, ss);
+        return { k: 'case', sel, items, def: s.default ? bindStmt(E, s.default, loc) : null, variant: s.variant || 'case', loc, cw: m, ss };
       }
       return { k: 'case', sel, items, def: s.default ? bindStmt(E, s.default, loc) : null, variant: s.variant || 'case', loc };
     }

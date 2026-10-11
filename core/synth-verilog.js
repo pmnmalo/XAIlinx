@@ -33,6 +33,17 @@ export class SynthError extends Error {
 // ------------------------------------------------------------------ names, widths, constants
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
 const KEYWORDS = new Set('always and assign begin buf case casex casez cmos deassign default defparam disable edge else end endcase endfunction endmodule endprimitive endspecify endtable endtask event for force forever fork function highz0 highz1 if ifnone initial inout input integer join large macromodule medium module nand negedge nmos nor not notif0 notif1 or output parameter pmos posedge primitive pull0 pull1 pulldown pullup rcmos real realtime reg release repeat rnmos rpmos rtran rtranif0 rtranif1 scalared small specify specparam strong0 strong1 supply0 supply1 table task time tran tranif0 tranif1 tri tri0 tri1 triand trior trireg vectored wait wand weak0 weak1 while wire wor xnor xor logic bit byte int shortint longint unsigned signed return break continue type typedef struct enum always_comb always_ff always_latch final unique priority do foreach'.split(' '));
+// the sign an operator evaluates with (Verilog: the context's, elaborate.js ctxSize)
+const esign = n => !!(n.es ?? n.t?.s);
+// does x (the text after an opening parenthesis) close that parenthesis at its very end
+function balanced(x) {
+  let d = 1;
+  for (let i = 0; i < x.length; i++) {
+    if (x[i] === '(') d++;
+    else if (x[i] === ')' && --d === 0) return i === x.length - 1;
+  }
+  return false;
+}
 const esc = n => (IDENT.test(n) && !KEYWORDS.has(n) ? n : `\\${n} `);
 
 /** The width a signal or local gets: integers the width of their range, the rest their own. */
@@ -129,8 +140,18 @@ export function toVerilog(design, { name } = {}) {
   for (const s of design.signals) if (!sigName.has(s) && !skipSig.has(s)) sigName.set(s, esc(uniq(s.path.startsWith(prefix) ? s.path.slice(prefix.length) : s.path)));
 
   // ---------------- values: every expression as an unsigned, exactly-sized Verilog expression
-  // fit(x, wFrom, sFrom, wTo): the value extended (by its own sign) or truncated to wTo bits
-  const fit = (x, wf, sf, wt) => (wf === wt ? x : `${wt}'(${sf ? `$signed(${x})` : x})`);
+  // fit(x, wFrom, sFrom, wTo): the value extended (by sFrom) or truncated to wTo bits. An assigned
+  // value is extended by its own sign; the operand of an operator by the sign of the operator's
+  // expression (a signed operand in an unsigned expression is zero-extended, IEEE 1364-2005 5.5.4),
+  // as the simulator does (interp.js fitOp)
+  // (xs: the Verilog text x is itself signed: a size cast keeps the sign of its operand, so zero
+  // extension needs $unsigned)
+  // sized(x, w): x in a self-determined place (concatenation part, replication, reduction,
+  // comparison operand) cast to its width unless it is a name or a literal: Yosys 0.68 sizes an
+  // operation on size casts at the width of the casts' operands there ({a[7], (1'(a >> 1) ^ 1'(a))}
+  // became 9 bits wide)
+  const sized = (x, w) => (/^(\\?[\w$.\[\]]+ ?|\d+'[sbhd]+[0-9a-fxz]+)$/i.test(x) || x.startsWith(`${w}'(`) && balanced(x.slice(String(w).length + 1)) ? x : `${w}'(${x})`);
+  const fit = (x, wf, sf, wt, xs = false) => (wf === wt ? x : `${wt}'(${sf ? `$signed(${x})` : xs ? `$unsigned(${x})` : x})`);
   const S = x => `$signed(${x})`;
 
   // the widths the translator gives a node: integer signals / locals narrower than 32
@@ -165,6 +186,9 @@ export function toVerilog(design, { name } = {}) {
         const w = wOf(s.t), x = sigName.get(s);
         // integer signals narrower than their 32-bit simulation width: extended back to 32 bits
         if (s.t.kind === 'int' && w !== s.t.w) return { x: fit(x, w, signedInt(s.t), s.t.w), w: s.t.w, s: true };
+        // a port connected straight to its actual (one signal) reads with the port's own sign
+        const ns = !!(n.t?.s ?? s.t.s);
+        if (n.t && n.t !== s.t && n.t.kind !== 'int' && ns !== !!s.t.s) return { x: ns ? `$signed(${x})` : `$unsigned(${x})`, w, s: ns };
         return { x, w, s: !!s.t.s };
       }
       case 'loc': {
@@ -177,29 +201,29 @@ export function toVerilog(design, { name } = {}) {
         const b = e(n.base, ctx);
         if (n.index.k === 'c') {
           const p = bitpos(n.base.t, V.toNum(n.index.val));
-          return { x: p === 0 && b.w === 1 ? b.x : `1'(${b.x} >> ${p})`, w: 1, s: false };
+          return { x: asSign(p === 0 && b.w === 1 ? b.x : `1'(${b.x} >> ${p})`, b.s, false), w: 1, s: false };
         }
-        return { x: `1'(${b.x} >> ${posExpr(n.base.t, n.index, ctx)})`, w: 1, s: false };
+        return { x: asSign(`1'(${b.x} >> ${posExpr(n.base.t, n.index, ctx)})`, b.s, false), w: 1, s: false };
       }
       case 'slice': {
         const b = e(n.base, ctx);
-        return { x: n.lo === 0 && b.w === t.w ? b.x : `${t.w}'(${b.x} >> ${n.lo})`, w: t.w, s: !!t.s };
+        return { x: asSign(n.lo === 0 && b.w === t.w ? b.x : `${t.w}'(${b.x} >> ${n.lo})`, b.s, !!t.s), w: t.w, s: !!t.s };
       }
       case 'dslice': {
         const b = e(n.base, ctx);
         if (n.left.k === 'c' && n.right.k === 'c') {
           const p1 = bitpos(n.base.t, V.toNum(n.left.val)), p2 = bitpos(n.base.t, V.toNum(n.right.val));
-          return { x: `${t.w}'(${b.x} >> ${Math.min(p1, p2)})`, w: t.w, s: !!t.s };
+          return { x: asSign(`${t.w}'(${b.x} >> ${Math.min(p1, p2)})`, b.s, !!t.s), w: t.w, s: !!t.s };
         }
-        const lo = n.base.t.desc ? posExpr(n.base.t, n.right, ctx) : posExpr(n.base.t, n.left, ctx);
-        return { x: `${t.w}'(${b.x} >> ${lo})`, w: t.w, s: !!t.s };
+        const lo = n.base.t.desc ? posExpr(n.base.t, n.right, ctx, true) : posExpr(n.base.t, n.left, ctx, true);
+        return { x: asSign(lowBits(b.x, lo, t.w), b.s, !!t.s), w: t.w, s: !!t.s };
       }
       case 'pslice': {
         const b = e(n.base, ctx);
-        if (n.start.k === 'c') return { x: `${t.w}'(${b.x} >> ${psliceLo(n.base.t, V.toNum(n.start.val), t.w, n.dir)})`, w: t.w, s: !!t.s };
-        const st = posExpr(n.base.t, n.start, ctx);
+        if (n.start.k === 'c') return { x: asSign(`${t.w}'(${b.x} >> ${psliceLo(n.base.t, V.toNum(n.start.val), t.w, n.dir)})`, b.s, !!t.s), w: t.w, s: !!t.s };
+        const st = posExpr(n.base.t, n.start, ctx, true);
         const up = (n.dir === '+') === !!n.base.t.desc;   // the start is the low bit
-        return { x: `${t.w}'(${b.x} >> ${up ? st : `(${st} - ${t.w - 1})`})`, w: t.w, s: !!t.s };
+        return { x: asSign(lowBits(b.x, up ? st : `(${st} - ${t.w - 1})`, t.w), b.s, !!t.s), w: t.w, s: !!t.s };
       }
       case 'elem': {
         const base = n.base;
@@ -221,18 +245,21 @@ export function toVerilog(design, { name } = {}) {
         // a size cast at the width of the cast's operand (4'(d) ^ 4'h3 with an 8-bit d: 8 bits),
         // which made `oe ? (4'(d) ^ …) : 4'bzzzz` an 8-bit multiplexer with 0000zzzz on the other
         // side, no longer a tri-state buffer
-        const w = n.ew || t.w, c = truth(n.c, ctx), a = e(n.a, ctx), b = e(n.b, ctx);
-        const br = v => { const x = fit(v.x, v.w, v.s, w); return /^\d+'[bh][0-9a-fxz]+$/.test(x) ? x : `${w}'(${x})`; };
-        return { x: `(${c} ? ${br(a)} : ${br(b)})`, w, s: !!t.s };
+        const w = n.ew || t.w, es = esign(n), c = truth(n.c, ctx), a = e(n.a, ctx), b = e(n.b, ctx);
+        const br = v => { const x = fit(v.x, v.w, es, w, v.s); return /^\d+'[bh][0-9a-fxz]+$/.test(x) ? x : `${w}'(${x})`; };
+        return { x: `(${c} ? ${br(a)} : ${br(b)})`, w, s: es };
       }
       case 'cat': {
-        const parts = n.parts.map(p => { const v = e(p, ctx); return fit(v.x, v.w, v.s, p.t.w); });
-        return { x: parts.length === 1 ? parts[0] : `{${parts.join(', ')}}`, w: t.w, s: !!t.s };
+        const vals = n.parts.map(p => e(p, ctx));
+        const parts = vals.map((v, i) => sized(fit(v.x, v.w, v.s, n.parts[i].t.w), n.parts[i].t.w));
+        // (a concatenation is unsigned: {s} of a signed s is $unsigned(s))
+        const one = parts.length === 1 && vals[0].s && !t.s ? `$unsigned(${parts[0]})` : parts[0];
+        return { x: parts.length === 1 ? one : `{${parts.join(', ')}}`, w: t.w, s: !!t.s };
       }
       case 'repl': {
         if (n.count.k !== 'c') fail('a replication count that is not constant', n);
         const a = e(n.a, ctx);
-        return { x: `{${V.toNum(n.count.val)}{${fit(a.x, a.w, a.s, n.a.t.w)}}}`, w: t.w, s: !!t.s };
+        return { x: `{${V.toNum(n.count.val)}{${sized(fit(a.x, a.w, a.s, n.a.t.w), n.a.t.w)}}}`, w: t.w, s: !!t.s };
       }
       case 'conv': {
         if (t.kind === 'real' || n.rtoi) fail('a conversion to or from REAL cannot be synthesized', n);
@@ -241,7 +268,9 @@ export function toVerilog(design, { name } = {}) {
           const low = t.w > 1 ? `${t.w - 1}'(${a.x})` : null;
           return { x: low ? `{1'(${a.x} >> ${a.w - 1}), ${low}}` : `1'(${a.x} >> ${a.w - 1})`, w: t.w, s: true };
         }
-        return { x: fit(a.x, a.w, n.ext ?? a.s, t.w), w: t.w, s: !!t.s };
+        const x = fit(a.x, a.w, n.ext ?? a.s, t.w, a.s);
+        // the sign of the conversion ({s} of a signed s is unsigned; $signed / $unsigned)
+        return { x: !!t.s === !!a.s || a.w !== t.w ? x : t.s ? `$signed(${x})` : `$unsigned(${x})`, w: t.w, s: !!t.s };
       }
       case 'call': return call(n, ctx);
       case 'edge': case 'event': fail('a clock edge outside the clock condition of a process', n); break;
@@ -253,24 +282,31 @@ export function toVerilog(design, { name } = {}) {
   }
 
   // a VHDL / Verilog index as a bit position (the simulator's bitpos)
-  function posExpr(t, idx, ctx) {
+  // the w bits of x from bit position lo (a signed expression) up: a select that starts below bit 0
+  // (x[n +: 2] with n = -1) keeps its bits that are in the range (Verilog shifts by an unsigned amount)
+  // x (a Verilog text signed when xs) with the sign s (a select of a signed vector is unsigned)
+  const asSign = (x, xs, s) => (!!xs === !!s ? x : s ? `$signed(${x})` : `$unsigned(${x})`);
+  const lowBits = (x, lo, w) => `${w}'((${lo}) < 0 ? ${x} << -(${lo}) : ${x} >> (${lo}))`;
+  function posExpr(t, idx, ctx, signedPos = false) {
     const i = e(idx, ctx);
-    const v = i.s ? S(i.x) : i.x;
+    // (signedPos: the position as a signed number, it can be below 0; read selects only: Yosys 0.68
+    // fails on a signed index in a memory word's part-select write)
+    const v = i.s ? S(i.x) : signedPos ? `$signed({1'b0, ${i.x}})` : i.x;
     return t.desc ? (t.right ? `(${v} - ${t.right})` : v) : `(${t.right} - ${v})`;
   }
 
   const truth = (n, ctx) => { const v = e(n, ctx); return v.w === 1 ? v.x : `(${v.x} != 0)`; };
 
   function un(n, ctx) {
-    const t = n.t, w = n.ew || t.w, a = e(n.a, ctx);
+    const t = n.t, w = n.ew || t.w, es = esign(n), a = e(n.a, ctx);
     if (n.fp) fail('real arithmetic cannot be synthesized', n);
     switch (n.o) {
       // (the operand of a unary operator is parenthesized: Yosys reads ~8'(x) as (~8)'(x))
-      case '~': return { x: `${w}'(~(${fit(a.x, a.w, a.s, w)}))`, w, s: !!t.s };
-      case '-': return { x: `${w}'(-(${fit(a.x, a.w, a.s, w)}))`, w, s: !!t.s };
+      case '~': return { x: `${w}'(~(${fit(a.x, a.w, es, w, a.s)}))`, w, s: es };
+      case '-': return { x: `${w}'(-(${fit(a.x, a.w, es, w, a.s)}))`, w, s: es };
       case '!': return { x: `!(${a.w === 1 ? a.x : `${a.x} != 0`})`, w: 1, s: false };
-      case 'abs': { const v = fit(a.x, a.w, a.s, w); return { x: `${w}'(${S(v)} < 0 ? -(${S(v)}) : ${S(v)})`, w, s: !!t.s }; }
-      case '&': case '|': case '^': case '~&': case '~|': case '~^': case '^~': return { x: `(${n.o}(${a.x}))`, w: 1, s: false };
+      case 'abs': { const v = fit(a.x, a.w, !!t.s, w); return { x: `${w}'(${S(v)} < 0 ? -(${S(v)}) : ${S(v)})`, w, s: !!t.s }; }
+      case '&': case '|': case '^': case '~&': case '~|': case '~^': case '^~': return { x: `(${n.o}(${sized(a.x, a.w)}))`, w: 1, s: false };
       default: fail(`operator ${n.o} not supported by synthesis`, n);
     }
     return null;
@@ -281,16 +317,16 @@ export function toVerilog(design, { name } = {}) {
     if (n.fp) fail('real arithmetic cannot be synthesized', n);
     if (o === '&&' || o === '||') return { x: `(${truth(n.a, ctx)} ${o} ${truth(n.b, ctx)})`, w: 1, s: false };
     const a = e(n.a, ctx), b = e(n.b, ctx);
-    const w = n.ew || t.w, s = !!t.s;
+    const w = n.ew || t.w, s = esign(n);
     if (['==', '!=', '===', '!==', '<', '<=', '>', '>='].includes(o)) {
       const os = !!(n.a.t?.s && n.b.t?.s);
       const cw = Math.max(n.cw || 0, a.w, b.w);
-      const A = fit(a.x, a.w, a.s, cw), B = fit(b.x, b.w, b.s, cw);
+      const A = sized(fit(a.x, a.w, os, cw, a.s), cw), B = sized(fit(b.x, b.w, os, cw, b.s), cw);
       const op = o === '===' ? '==' : o === '!==' ? '!=' : o;
       if (n.match) fail('std_match / matching comparison not supported by synthesis', n);
       return { x: os ? `(${S(A)} ${op} ${S(B)})` : `(${A} ${op} ${B})`, w: 1, s: false };
     }
-    const A = fit(a.x, a.w, a.s, w);
+    const A = fit(a.x, a.w, s, w, a.s);
     if (['<<', '<<<', '>>', '>>>', 'rol', 'ror'].includes(o)) {
       const cnt = b.s ? S(b.x) : b.x;
       if (n.vs && n.fill) fail('sla / sra on bit_vector not supported by synthesis', n);
@@ -299,7 +335,8 @@ export function toVerilog(design, { name } = {}) {
       switch (o) {
         case '<<': case '<<<': return { x: `${w}'(${A} << ${cnt})`, w, s };
         case '>>': return { x: `${w}'(${A} >> ${cnt})`, w, s };
-        case '>>>': return { x: `${w}'(${S(A)} >>> ${cnt})`, w, s };
+        // (an arithmetic shift only of a signed expression: >>> of an unsigned one is >>)
+        case '>>>': return { x: s ? `${w}'(${S(A)} >>> ${cnt})` : `${w}'(${A} >> ${cnt})`, w, s };
         case 'rol': case 'ror': {
           if (constCnt === null) fail('a rotation by a non-constant amount', n);
           const k = ((constCnt % w) + w) % w;
@@ -309,7 +346,7 @@ export function toVerilog(design, { name } = {}) {
         }
       }
     }
-    const B = fit(b.x, b.w, b.s, w);
+    const B = fit(b.x, b.w, s, w, b.s);
     const SA = s ? S(A) : A, SB = s ? S(B) : B;
     switch (o) {
       case '+': case '-': case '*': return { x: `${w}'(${SA} ${o} ${SB})`, w, s };
@@ -462,13 +499,19 @@ export function toVerilog(design, { name } = {}) {
         return `${ind}if (${c}) begin\n${th}${ind}end${el ? ` else begin\n${el}${ind}end` : ''}\n`;
       }
       case 'case': {
-        const sel = e(s.sel, ctx);
+        let sel = e(s.sel, ctx);
+        // Verilog: the case expression and the items at the width of the widest, extended as signed
+        // only when all are signed (elaborate.js: s.cw, s.ss); VHDL: the choices have the width of
+        // the expression
+        const vl = s.ss !== undefined;
+        if (vl && s.cw > sel.w) sel = { x: fit(sel.x, sel.w, s.ss, s.cw, sel.s), w: s.cw, s: s.ss };
+        const choiceVal = v => (vl ? V.resize(V.withSign(v, s.ss), sel.w) : V.resize(v, Math.max(sel.w, v.w)));
         const hasRange = s.items.some(it => it.choices.some(ch => ch.range));
         const constChoices = s.items.every(it => it.choices.every(ch => ch.range || ch.k === 'c'));
         if (!hasRange && constChoices && (s.variant === 'case' || !s.variant)) {
           let out = `${ind}case (${sel.x})\n`;
           for (const it of s.items) {
-            const labels = it.choices.map(ch => { const w = Math.max(sel.w, ch.val.w); return lit(V.resize(ch.val, w), sel.w); });
+            const labels = it.choices.map(ch => lit(choiceVal(ch.val), sel.w));
             out += `${ind}  ${labels.join(', ')}: begin\n${stmt(it.body, ctx, `${ind}    `, mode, loop)}${ind}  end\n`;
           }
           out += `${ind}  default: begin\n${s.def ? stmt(s.def, ctx, `${ind}    `, mode, loop) : ''}${ind}  end\n${ind}endcase\n`;
@@ -476,7 +519,7 @@ export function toVerilog(design, { name } = {}) {
         }
         if (s.variant === 'casez' || s.variant === 'casex') {
           let out = `${ind}${s.variant} (${sel.x})\n`;
-          for (const it of s.items) out += `${ind}  ${it.choices.map(ch => { const v = e(ch, ctx); return fit(v.x, v.w, v.s, sel.w); }).join(', ')}: begin\n${stmt(it.body, ctx, `${ind}    `, mode, loop)}${ind}  end\n`;
+          for (const it of s.items) out += `${ind}  ${it.choices.map(ch => { const v = e(ch, ctx); return fit(v.x, v.w, vl ? s.ss : v.s, sel.w, v.s); }).join(', ')}: begin\n${stmt(it.body, ctx, `${ind}    `, mode, loop)}${ind}  end\n`;
           out += `${ind}  default: begin\n${s.def ? stmt(s.def, ctx, `${ind}    `, mode, loop) : ''}${ind}  end\n${ind}endcase\n`;
           return out;
         }
@@ -491,7 +534,7 @@ export function toVerilog(design, { name } = {}) {
               return `((${sv} >= ${a} && ${sv} <= ${b}) || (${sv} >= ${b} && ${sv} <= ${a}))`;
             }
             const v = e(ch, ctx); const w = Math.max(sel.w, v.w);
-            return `(${fit(sel.x, sel.w, sel.s, w)} == ${fit(v.x, v.w, v.s, w)})`;
+            return `(${fit(sel.x, sel.w, vl ? s.ss : sel.s, w, sel.s)} == ${fit(v.x, v.w, vl ? s.ss : v.s, w, v.s)})`;
           });
           out += `${ind}${first ? '' : 'else '}if (${conds.join(' || ')}) begin\n${stmt(it.body, ctx, `${ind}  `, mode, loop)}${ind}end\n`;
           first = false;
@@ -798,7 +841,10 @@ export function toVerilog(design, { name } = {}) {
     }
     if (t.kind === 'real' || t.kind === 'str' || t.kind === 'time') { warnings.push(`signal ${s.path}: ${t.kind} signals are not synthesized`); continue; }
     const w = wOf(t);
-    decls.push(`  logic ${sgn(t) ? 'signed ' : ''}[${w - 1}:0] ${name}${initOf(s, w)};`);
+    // a signal nothing drives keeps its initial value: a constant (wire x = v), not only an initial
+    // value (an input port of an instance left unconnected, with its default value)
+    const iv = initOf(s, w), konst = iv && !drivers.has(s) && !primDriven.has(s);
+    decls.push(`  ${konst ? 'wire' : 'logic'} ${sgn(t) ? 'signed ' : ''}[${w - 1}:0] ${name}${iv};`);
   }
   for (const p of design.procs) if (!skipProc.has(p) && p.mode !== 'initial' && p.mode !== 'loop') process(p);
   for (const pr of prims) instance(pr);

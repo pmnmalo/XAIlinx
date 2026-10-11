@@ -19,7 +19,11 @@ const isStr = v => v && v.str !== undefined;
 export function evalE(n, ctx) {
   switch (n.k) {
     case 'c': return n.val;
-    case 'sig': return n.sig.val;
+    case 'sig': {
+      // a Verilog port connected straight to its actual (one signal) reads with the port's own sign
+      const v = n.sig.val;
+      return n.t !== n.sig.t && v && v.s !== undefined && !!v.s !== !!n.t.s && n.t.kind === 'logic' ? V.withSign(v, !!n.t.s) : v;
+    }
     case 'loc': return ctx.frame[n.i];
     case 'bit': {
       const b = evalE(n.base, ctx), i = evalE(n.index, ctx);
@@ -56,11 +60,13 @@ export function evalE(n, ctx) {
       const w = n.ew || n.t.w;
       const c = V.truth(evalE(n.c, ctx));
       if (n.vh) { const r = evalE(c === 1 ? n.a : n.b, ctx); return Array.isArray(r) || isStr(r) ? r : fit(r, w, n.t.s); }
-      if (c === 1) return fit(evalE(n.a, ctx), w, n.t.s);
-      if (c === 0) return fit(evalE(n.b, ctx), w, n.t.s);
-      const a = fit(evalE(n.a, ctx), w, n.t.s), b = fit(evalE(n.b, ctx), w, n.t.s);
+      if (n.t.kind === 'real') return evalE(c === 0 ? n.b : n.a, ctx);
+      const s = esign(n);
+      if (c === 1) return fitOp(evalE(n.a, ctx), w, s);
+      if (c === 0) return fitOp(evalE(n.b, ctx), w, s);
+      const a = fitOp(evalE(n.a, ctx), w, s), b = fitOp(evalE(n.b, ctx), w, s);
       const x = a.x | b.x | (a.v ^ b.v);
-      return V.mk(w, a.v & ~x, x, n.t.s);
+      return V.mk(w, a.v & ~x, x, s);
     }
     case 'cat': return V.concat(n.parts.map(p => V.resize(evalE(p, ctx), p.t.w)));
     case 'repl': {
@@ -132,7 +138,15 @@ export function evalE(n, ctx) {
   }
 }
 
+// an assigned value at the width of its target: extended by its own sign (Verilog extends the
+// right-hand side of an assignment as the right-hand side is signed)
 function fit(v, w, s) { return V.withSign(V.resize(v, w), s); }
+// an operand at the width and sign of its operator (Verilog comparisons, shifts, ?:): the operand
+// takes the sign of the expression first, then is extended (IEEE 1364-2005 5.5.4: a signed operand
+// of an unsigned expression is zero-extended)
+function fitOp(v, w, s) { return V.resize(V.withSign(v, s), w); }
+// the sign an operator evaluates with: the context's (Verilog, elaborate.js ctxSize), else its own
+const esign = n => n.es ?? n.t.s;
 
 // VHDL: index outside the range of an array / vector
 function indexError(i, t) {
@@ -155,10 +169,10 @@ export function psliceLo(t, start, w, dir) {
 function evalUn(n, ctx) {
   const a = evalE(n.a, ctx);
   if (n.fp) { const x = V.toReal(a); return V.real(n.o === '-' ? -x : Math.abs(x)); }
-  const w = n.ew || n.t.w;
+  const w = n.ew || n.t.w, s = esign(n);
   switch (n.o) {
-    case '~': return V.not(V.resize(V.withSign(a, n.t.s), w), w, n.t.s);
-    case '-': return V.neg(V.withSign(a, n.t.s), w, n.t.s);
+    case '~': return V.not(V.resize(V.withSign(a, s), w), w, s);
+    case '-': return V.neg(V.withSign(a, s), w, s);
     case '!': { const t = V.truth(a); return t < 0 ? V.X1 : V.fromBool(!t); }
     case 'abs': {
       if (a.x) return V.allX(w, true);
@@ -200,29 +214,29 @@ function evalBin(n, ctx) {
     throw new SimError(`operator ${o} on strings`);
   }
   if (n.fp) return evalReal(n, a, b);
-  const w = n.ew || n.t.w, s = n.t.s;
+  const w = n.ew || n.t.w, s = esign(n);
   switch (o) {
     case '==': case '!=': case '===': case '!==': case '<': case '<=': case '>': case '>=': {
       const os = n.a.t.s && n.b.t.s;
       const cw = Math.max(n.cw || 0, a.w, b.w);
       if (n.vh) { // VHDL '=': exact comparison of the values (std_match: constant 'X'/'-' bits are don't cares)
-        const A = fit(a, cw, os), B = fit(b, cw, os);
+        const A = fitOp(a, cw, os), B = fitOp(b, cw, os);
         let care = V.mask(cw);
         if (n.match) care &= ~((n.a.k === 'c' ? A.x : 0n) | (n.b.k === 'c' ? B.x : 0n));
         const eq = ((A.v ^ B.v) & care) === 0n && ((A.x ^ B.x) & care) === 0n && (!n.match || ((A.x | B.x) & care) === 0n);
         return V.fromBool(o === '==' ? eq : !eq);
       }
-      return V.cmp(o, fit(a, cw, os), fit(b, cw, os));
+      return V.cmp(o, fitOp(a, cw, os), fitOp(b, cw, os));
     }
     case '<<': case '<<<': case '>>': case '>>>': case 'rol': case 'ror':
-      if (n.vs) return vhShift(o, fit(a, w, s), b, w, n.fill);
+      if (n.vs) return vhShift(o, fitOp(a, w, s), b, w, n.fill);
   }
   switch (o) {
-    case '<<': case '<<<': return V.shl(fit(a, w, s), b, w);
-    case '>>': return V.shr(fit(a, w, s), b, w, false);
-    case '>>>': return V.shr(fit(a, w, s), b, w, true);
-    case 'rol': return V.rotl(fit(a, w, s), b);
-    case 'ror': return V.rotr(fit(a, w, s), b);
+    case '<<': case '<<<': return V.shl(fitOp(a, w, s), b, w);
+    case '>>': return V.shr(fitOp(a, w, s), b, w, false);
+    case '>>>': return V.shr(fitOp(a, w, s), b, w, true);
+    case 'rol': return V.rotl(fitOp(a, w, s), b);
+    case 'ror': return V.rotr(fitOp(a, w, s), b);
   }
   a = V.withSign(a, s); b = V.withSign(b, s);
   if (n.dz && !b.x && b.v === 0n && !ctx.probe) throw new SimError(`division by zero (operator ${o === '/' ? '/' : o})`);
@@ -643,8 +657,9 @@ export function* exec(s, ctx) {
             hit = v >= (a < b ? a : b) && v <= (a < b ? b : a);
           } else {
             const cv = evalE(ch, ctx);
-            const w = Math.max(sel.w, cv.w);
-            hit = V.caseMatch(V.resize(sel, w), V.resize(cv, w), s.variant);
+            const w = Math.max(sel.w, cv.w, s.cw || 0);
+            // Verilog: extended as signed only when the case expression and all items are
+            hit = s.ss === undefined ? V.caseMatch(V.resize(sel, w), V.resize(cv, w), s.variant) : V.caseMatch(fitOp(sel, w, s.ss), fitOp(cv, w, s.ss), s.variant);
           }
           if (hit) return yield* exec(it.body, ctx);
         }

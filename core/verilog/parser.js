@@ -149,6 +149,7 @@ class Parser {
       let def = null;
       if (this.accept('=')) def = this.expr();
       const port = { name: pn, dir, type, default: def, loc, net };
+      if (this.portNames.has(pn)) { this.error(`port '${pn}' is declared twice`, this.toks[this.i - 1]); continue; }
       mod.ports.push(port); this.portNames.set(pn, port);
     } while (this.accept(','));
   }
@@ -275,7 +276,8 @@ class Parser {
     this.expect(';');
   }
 
-  netDecl(items, decls) {
+  // local: a declaration in a function, task or block (never the module port of that name)
+  netDecl(items, decls, local = false) {
     const kw = this.next().v;
     if (kw === 'genvar') { do { this.ident(); } while (this.accept(',')); this.expect(';'); return; }
     let type;
@@ -297,7 +299,7 @@ class Parser {
       for (let k = dims.length - 1; k >= 0; k--) t = { kind: 'array', range: dims[k], elem: t };
       let init = null;
       if (this.accept('=')) init = this.expr();
-      const port = this.portNames.get(name);
+      const port = local ? null : this.portNames.get(name);
       if (port) {
         // `output q; reg [3:0] q;` -> refine the port declaration
         if (type.range && !port.type.range) port.type = type;
@@ -474,7 +476,7 @@ class Parser {
         this.next(); const { type } = this.paramType();
         do { const n = this.ident(); this.expect('='); decls.push({ kind: 'const', name: n, type, value: this.expr(), loc: this.loc() }); } while (this.accept(','));
         this.expect(';');
-      } else this.netDecl([], decls);
+      } else this.netDecl([], decls, true);
     }
     const body = [];
     while (!this.isAny('endfunction', 'endtask', 'endmodule') && this.tok.t !== 'eof') { const i0 = this.i; body.push(this.stmt()); if (this.i === i0) break; }
@@ -498,8 +500,12 @@ class Parser {
       this.expect(')');
       const out = args[0], ins = args.slice(1);
       let value;
-      if (g === 'not' || g === 'buf') value = g === 'not' ? { op: 'unary', o: '~', a: ins[0] } : ins[0];
-      else if (g.includes('if')) {   // bufif1 (out, in, enable): in when enabled, z otherwise
+      if (g === 'not' || g === 'buf') {
+        // not / buf: every terminal but the last is an output (not (o1, o2, i))
+        const i = args[args.length - 1];
+        for (const o of args.slice(0, -1)) items.push({ kind: 'assign', target: o, value: g === 'not' ? { op: 'unary', o: '~', a: i } : i, delay, loc, gate: true });
+        continue;
+      } else if (g.includes('if')) {   // bufif1 (out, in, enable): in when enabled, z otherwise
         const d = g.startsWith('not') ? { op: 'unary', o: '~', a: ins[0] } : ins[0];
         const z = { op: 'lit', bits: 'z', signed: false, sized: true };
         value = g.endsWith('1') ? { op: 'cond', cond: ins[1], then: d, else: z } : { op: 'cond', cond: ins[1], then: z, else: d };
@@ -508,7 +514,7 @@ class Parser {
         value = ins.reduce((acc, e) => ({ op: 'binary', o, a: acc, b: e }));
         if (g[0] === 'n' || g === 'xnor') value = { op: 'unary', o: '~', a: value };
       }
-      items.push({ kind: 'assign', target: out, value, delay, loc });
+      items.push({ kind: 'assign', target: out, value, delay, loc, gate: true });
     } while (this.accept(','));
     this.expect(';');
   }
@@ -580,7 +586,7 @@ class Parser {
         let label = null;
         if (this.accept(':')) label = this.ident();
         const decls = [], stmts = [];
-        while (this.isAny('reg', 'integer', 'logic', 'real', 'time')) this.netDecl([], decls);
+        while (this.isAny('reg', 'integer', 'logic', 'real', 'time')) this.netDecl([], decls, true);
         for (const d of decls) d.net = 'variable';
         // a missing 'end' must not loop forever: stop at 'endmodule' or a module item (assign, always…)
         // and on a statement that consumes nothing
@@ -595,7 +601,7 @@ class Parser {
         let label = null;
         if (this.accept(':')) label = this.ident();
         const decls = [], stmts = [];
-        while (this.isAny('reg', 'integer', 'logic', 'real', 'time')) this.netDecl([], decls);
+        while (this.isAny('reg', 'integer', 'logic', 'real', 'time')) this.netDecl([], decls, true);
         for (const d of decls) d.net = 'variable';
         const isEnd = () => this.is('join') || (this.tok.t === 'id' && (this.tok.v === 'join_any' || this.tok.v === 'join_none'));
         while (!isEnd() && !this.isAny('end', 'endmodule') && this.tok.t !== 'eof') stmts.push(this.stmt());
