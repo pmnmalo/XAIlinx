@@ -38,16 +38,17 @@ for (const v of key.variants) {
     if (bd > 64 * 12) { far++; if (process.env.DEBUG) console.error(v.name, x.frame, x.bit, bd, best && best.site); continue; }
     best.bits.push(`${x.value ? '' : '!'}${x.frame},${x.bit}`);
   }
-  const mode = v.base[0];
+  // (gen-iob.mjs --perstd: the changes of the outputs of another standard than LVCMOS33)
+  const mode = v.std ? `O:${v.std}` : v.base[0];
   for (const c of wins) ((deltas[c.site] ||= {})[mode] ||= {})[v.change] = c.bits.sort();
 }
 const out = { padFeatures: {}, padDriveDefault: { LVCMOS15: '8', LVCMOS12: '6' } };
 let n = 0;
 for (const [pad, modes] of Object.entries(deltas)) for (const [mode, chs] of Object.entries(modes)) {
-  const base = db.padFeats[pad]?.[`${mode}:LVCMOS33`];
+  const base = db.padFeats[pad]?.[`${mode[0]}:LVCMOS33`];
   for (const [ch, bits] of Object.entries(chs)) {
     let feat, val;
-    if (STD[ch]) {
+    if (STD[ch] && mode.length === 1) {
       if (!base) continue;
       // the whole pad feature: the LVCMOS33 bits with the change applied
       const set = new Set(base);

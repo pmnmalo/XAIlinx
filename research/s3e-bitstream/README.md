@@ -42,6 +42,8 @@ reference design implemented by ISE (`top.xdl`, `top.bit`, from `top.v` / `top.u
 | `measured/` | Results of the analyses that `build-db.sh` merges (slice harnesses, learned and corrected features: our own observations, no Xilinx files) |
 | `learn-single.mjs`, `unify-io.mjs` | Features measured in the reference designs; shared switch boxes of the I/O tile types |
 | `check-writer.mjs` | Acceptance test of the writer (`core/fpga/bitgen.js`): byte comparison with ISE's bitgen |
+| `fuzz-remote.sh` | Stage D: `run-many.sh` on another machine with Docker and the ISE image (`SILINX_FUZZ_HOST=user@host`, set on the command line only) |
+| `share-sb.mjs`, `gen-branch.mjs`, `ana-perpad.mjs`, `ise-impl.sh` | Stage D: the CLB switch box shared by the I/O, block-RAM and DCM tiles; PIPs measured as dead-end branches of routed nets; I/O settings per pad; designs implemented by ISE from HDL (reference designs) |
 | `db/xc3s250e-layout.json`, `db/xc3s250e-tiles.json` | Result of stage C: where every tile is in the frame data; the bits of every measured feature (PIPs, site settings, pads) per tile type |
 
 ## Results
@@ -207,9 +209,9 @@ byte-identical (switch -> LED placed by Silinx, `s4/top`), the others differ in 
 the 1.35 million (unknown PIPs of block-RAM interconnect, DCM and I/O tiles, the carry chain of
 SLICEMs, and the open SLICEM bits below); lab11 synthesized by Yosys differs in 276 bits.
 
-Open: in a SLICEM of an F6 multiplexer tree, ISE sometimes sets 2 more bits per slice (SLICE0:
-1,55 1,57; SLICE1: 1,23 1,25) and sometimes not, with the same settings in the XDL (they are set
-for a `_GND_SOURCE::Y` SLICEM); the condition is not known yet, the database leaves them out.
+Open at the end of stage C (solved in stage D): in a SLICEM of an F6 multiplexer tree, ISE
+sometimes sets 2 more bits per slice (SLICE0: 1,55 1,57; SLICE1: 1,23 1,25) and sometimes not, with
+the same settings in the XDL (they are set for a `_GND_SOURCE::Y` SLICEM).
 
 **Runtime.** About 185 ISE runs (`xdl -xdl2ncd` + `bitgen`, 3 at a time, about 1 minute each under
 emulation), about 4 hours of wall time in batches; the analyses run in seconds.

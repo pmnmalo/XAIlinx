@@ -17,10 +17,11 @@ export const SHIFTS = {
   '2,16': ['UL'],
 };
 // the I/O tiles' own pin wires are the CLB's with another name (IOIS_X0 = X0, IOIS_F1_B0 = F1_B0,
-// IOIS_VCC_WIRE = VCC_PINWIRE): every one measured in both has the same bits
-export const RENAME = [['IOIS_VCC_WIRE', 'VCC_PINWIRE'], ['IOIS_', '']];
-export const IO_EMPTY = '^IOB\\d:(USED|PAD:|INBUF:|OUTBUF:|IMUX:|IDELMUX:|O1INV:|OMUX:|IOATTRBOX:|DRIVEATTRBOX:|SLEW:|PULL:)';
-const renamed = f => RENAME.reduce((x, [a, b]) => x.split(a).join(b), f);
+// IOIS_VCC_WIRE = VCC_PINWIRE): every one measured in both has the same bits; not the clock pins
+// (IOIS_CLK0-7: other bits than the CLB's CLK0-3)
+export const RENAME = [['IOIS_VCC_WIRE', 'VCC_PINWIRE'], ['IOIS_(?!CLK)', '']];
+export const IO_EMPTY = '^IOB\\d:(USED|PAD:|INBUF:|OUTBUF:|IMUX:|IDELMUX:|O1INV:|OMUX:|IOATTRBOX:|DRIVEATTRBOX:|SLEW:|PULL:)|->IOIS_STUB_';
+const renamed = f => RENAME.reduce((x, [a, b]) => x.replace(new RegExp(a, 'g'), b), f);
 
 if (process.argv[1] && process.argv[1].endsWith('share-sb.mjs')) {
   const check = process.argv.includes('--check');
@@ -37,7 +38,8 @@ if (process.argv[1] && process.argv[1].endsWith('share-sb.mjs')) {
       const io = /IOIS|IBUFS/.test(type);
       if (io) t.rename = RENAME; else delete t.rename;
       // the I/O sites' settings of an input or output with a standard, drive, slew and pull: their
-      // bits are the pad's own features (184 measured, none with bits of the tile)
+      // bits are the pad's own features (184 measured, none with bits of the tile); the PIPs into
+      // the stub wires of the input-only tiles (IOIS_STUB_…: 1260 measured, none with bits)
       if (io) t.emptyFeatures = IO_EMPTY; else delete t.emptyFeatures;
       for (const [f, bits] of Object.entries(t.features)) {
         const c = clb[io ? renamed(f) : f];

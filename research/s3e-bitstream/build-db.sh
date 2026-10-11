@@ -11,7 +11,7 @@
 #   $W/{c6…c10,n1,n2,b-*}/   PIP batches of stage D (gen-pipcover.mjs: carry outputs, clock pins, the
 #                            constant 1, long lines, terminal tiles, I/O and block-RAM pins)
 #   $W/io1/                  I/O settings (gen-iob.mjs)
-#   $W/io4/                  I/O settings per pad (gen-iob.mjs --perpad)
+#   $W/io4/, $W/io7/         I/O settings per pad (gen-iob.mjs --perpad, --perstd)
 #   $W/ref/                  designs implemented by ISE (routed XDL + .bit) for the residual analysis
 set -e
 W=${1:-/tmp/claude-501/bg}
@@ -35,6 +35,7 @@ node unify-io.mjs
 node share-sb.mjs
 # I/O standards, drive, slew and pull per pad (gen-iob.mjs --perpad, stage D)
 if [ -f "$W/io4/key.json" ]; then node ana-perpad.mjs "$W/io4" > "$W/perpad.json" && node merge-db.mjs "$W/perpad.json"; fi
+if [ -f "$W/io7/key.json" ] && [ -f "$W/io7/LVCMOS12_BASE.bit" ]; then node ana-perpad.mjs "$W/io7" > "$W/perstd.json" && node merge-db.mjs "$W/perstd.json"; fi
 # corrections found by comparing whole designs with ISE (check-writer.mjs, explain-diff.mjs)
 for f in measured/fix-*.json; do [ -f "$f" ] && node merge-db.mjs "$f"; done
 

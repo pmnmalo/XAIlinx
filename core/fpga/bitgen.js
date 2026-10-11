@@ -130,12 +130,13 @@ export function designFeatures(design, db) {
       const std = (inst.cfg.find(c => c.attr === 'IOATTRBOX') || {}).value || 'NONE';
       feats.push({ tile: `@${inst.site}`, feature: `${mode}:${std}` });
       // drive strength, slew rate and pull: changes to the pad's bits, measured against DRIVE 12
-      // (8 for LVCMOS15, 6 for LVCMOS12: db padDriveDefault), SLOW, no pull
+      // (8 for LVCMOS15, 6 for LVCMOS12: db padDriveDefault), SLOW, no pull; the drive and slew of
+      // each standard separately (O:DRIVE:8 for LVCMOS33, O:LVTTL:DRIVE:8…)
       const val = a => { const c = inst.cfg.find(x => x.attr === a); return c && c.value !== '#OFF' ? c.value : null; };
       const om = mode === 'I' ? 'I' : 'O';
       const drive = val('DRIVEATTRBOX');
-      if (om === 'O' && drive && drive !== ((db.tiles?.padDriveDefault || {})[std] || '12')) feats.push({ tile: `@${inst.site}`, feature: `O:DRIVE:${drive}` });
-      if (om === 'O' && val('SLEW') === 'FAST') feats.push({ tile: `@${inst.site}`, feature: 'O:SLEW:FAST' });
+      if (om === 'O' && drive && drive !== ((db.tiles?.padDriveDefault || {})[std] || '12')) feats.push({ tile: `@${inst.site}`, feature: `${std === 'LVCMOS33' ? 'O' : `O:${std}`}:DRIVE:${drive}` });
+      if (om === 'O' && val('SLEW') === 'FAST') feats.push({ tile: `@${inst.site}`, feature: `${std === 'LVCMOS33' ? 'O' : `O:${std}`}:SLEW:FAST` });
       if (val('PULL')) feats.push({ tile: `@${inst.site}`, feature: `${om}:PULL:${val('PULL')}` });
     }
     // a LUT not used in a used slice holds the constant 0 (written like any LUT: 16 ones, inverted);

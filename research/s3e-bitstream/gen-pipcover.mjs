@@ -22,8 +22,9 @@ const pinSets = new Set(opt('--pins', 'lut').replace('all', 'lut,ff').split(',')
 const allPins = pinSets.has('ff');
 // --long: the long lines (LH, LV) may be used wherever they go
 const long = opt('--long', '0') === '1';
-// --nosink 1: the PIP under test ends its net (no sink: bitgen programs every PIP of a net with pins,
-// also one that leads nowhere), for PIPs into wires the router cannot take to a slice
+// --nosink 1: the PIP under test ends its route (the net gets an unrouted sink: bitgen programs every
+// PIP of a net with pins, also one that leads nowhere), for PIPs into wires the router cannot take to
+// a slice
 const nosink = opt('--nosink', '0') === '1';
 // --want file.json: { TYPE: ['from->to', …] } only these PIPs (e.g. those of designs to reproduce)
 const wantFile = opt('--want', null);
@@ -103,6 +104,9 @@ function search(n0, forward, t0) {
 }
 const nodesOf = (path, extra) => { const s = new Set(extra); for (const e of path) for (const n of pipEnds(e)) s.add(n); return s; };
 
+// free LUT input pins of SLICELs, for the nets that end at the PIP under test (--nosink)
+const freeSinks = nosink ? [...sinkPin].filter(([, p]) => p.type === 'SLICEL' && /^[FG][1-4]$/.test(p.pin)) : [];
+const freeSink = () => { for (;;) { const e = freeSinks.pop(); if (!e) throw new Error('no free slice input pin'); if (!used.has(e[0])) { used.add(e[0]); return e[1]; } } };
 const wantTypes = typesOpt ? new Set(typesOpt.split(',')) : null;
 const nets = [], key = {};
 const sliceUse = new Map();   // site -> { type, tile, out: Set(X|Y), in: Set }
@@ -130,7 +134,9 @@ for (const t of tiles) {
     for (const n of nodesOf(fwd, [])) used.add(n);
     const srcNode = back.length ? pipEnds(back[0])[0] : a;
     const sinkNode = fwd.length ? pipEnds(fwd[fwd.length - 1])[1] : b;
-    const src = srcPin.get(srcNode), sink = nosink ? null : sinkPin.get(sinkNode);
+    // (xdl -xdl2ncd crashes on a net without an input pin: a no-sink net gets a free slice input
+    // pin, not routed)
+    const src = srcPin.get(srcNode), sink = nosink ? freeSink() : sinkPin.get(sinkNode);
     used.add(srcNode); used.add(sinkNode);
     for (const p of [src, sink]) if (p && !sliceUse.has(p.site)) sliceUse.set(p.site, { ...p, out: new Set(), in: new Set() });
     sliceUse.get(src.site).out.add(src.pin);
